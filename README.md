@@ -76,6 +76,9 @@ namespace URL остаются `"aicore"` (`reverse("aicore:tasks")`,
 
 Все страницы требуют логина (`login_required`).
 
+Пакет самодостаточен по статике: jQuery 3.7, Bootstrap 5 и bootstrap-icons
+едут внутри (`django_aicore/vendor/`), ничего докладывать в проект не надо.
+
 ## Синхронный вызов AI
 
 ```python
