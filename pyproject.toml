@@ -34,8 +34,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/russian-master/django-aicore"
-Repository = "https://github.com/russian-master/django-aicore"
+Homepage = "https://github.com/geweb7/django-aicore"
+Repository = "https://github.com/geweb7/django-aicore"
 
 [tool.setuptools.packages.find]
 include = ["django_aicore", "django_aicore.migrations"]
