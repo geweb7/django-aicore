@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('django_aicore', '0008_aicalllog_cost_aicalllog_gen_id'),
+        ("aicore", '0008_aicalllog_cost_aicalllog_gen_id'),
     ]
 
     operations = [

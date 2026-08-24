@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('django_aicore', '0004_proxysettings_fails'),
+        ("aicore", '0004_proxysettings_fails'),
     ]
 
     operations = [

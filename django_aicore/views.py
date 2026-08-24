@@ -60,7 +60,7 @@ def read_task(task_id):
         return json.load(f)
 
 
-def run_async(task_func, poll_url_name="django_aicore:task_poll", dedup_key=None):
+def run_async(task_func, poll_url_name="aicore:task_poll", dedup_key=None):
     """Запускает task_func в фоновом треде, возвращает (task_id, poll_url).
 
     dedup_key задан → защита от повторного запуска той же задачи (двойной клик, два
@@ -180,7 +180,7 @@ def tasks(request):
 def task_save(request, pk):
     task = get_object_or_404(AITask, pk=pk)
     if request.method != "POST":
-        return redirect("django_aicore:tasks")
+        return redirect("aicore:tasks")
 
     task.tag = (request.POST.get("tag") or "").strip()
     task.role = (request.POST.get("role") or "").strip()
@@ -192,10 +192,10 @@ def task_save(request, pk):
             task.temperature = float(temp.replace(",", "."))
         except ValueError:
             messages.error(request, f"«{temp}» — не число. Temperature не изменена.")
-            return redirect("django_aicore:tasks")
+            return redirect("aicore:tasks")
     task.save(update_fields=["tag", "role", "temperature"])
     messages.success(request, f"Задача «{task}» сохранена.")
-    return redirect("django_aicore:tasks")
+    return redirect("aicore:tasks")
 
 
 @login_required
@@ -205,7 +205,7 @@ def task_delete(request, pk):
         # Задача зарегистрируется заново при следующем вызове — с дефолтами из кода.
         task.delete()
         messages.success(request, "Задача удалена, настройки сброшены к значениям из кода.")
-    return redirect("django_aicore:tasks")
+    return redirect("aicore:tasks")
 
 
 @login_required
@@ -218,7 +218,7 @@ def provider_add(request):
         tag_formset.instance = provider
         tag_formset.save()
         messages.success(request, "Провайдер добавлен.")
-        return redirect("django_aicore:providers")
+        return redirect("aicore:providers")
     return render(request, "django_aicore/provider_form.html", {
         "form": form, "tag_formset": tag_formset, "title": "Новый провайдер",
     })
@@ -233,7 +233,7 @@ def provider_edit(request, pk):
         form.save()
         tag_formset.save()
         messages.success(request, "Провайдер сохранён.")
-        return redirect("django_aicore:providers")
+        return redirect("aicore:providers")
     return render(request, "django_aicore/provider_form.html", {
         "form": form, "tag_formset": tag_formset, "title": "Редактировать провайдер", "provider": provider,
     })
@@ -251,7 +251,7 @@ def provider_copy(request, pk):
     for name in tags:
         src.tags.create(name=name)
     messages.success(request, f"Провайдер скопирован (приоритет {src.priority}) — отредактируйте копию.")
-    return redirect("django_aicore:provider_edit", pk=src.pk)
+    return redirect("aicore:provider_edit", pk=src.pk)
 
 
 @login_required
@@ -260,7 +260,7 @@ def provider_delete(request, pk):
     if request.method == "POST":
         provider.delete()
         messages.success(request, "Провайдер удалён.")
-    return redirect("django_aicore:providers")
+    return redirect("aicore:providers")
 
 
 @login_required
@@ -323,7 +323,7 @@ def calls_refresh_costs(request):
     за раз обрабатывается не больше потолка в refresh_costs — остаток называется в
     сообщении, а не отбрасывается молча."""
     if request.method != "POST":
-        return redirect("django_aicore:calls")
+        return redirect("aicore:calls")
 
     result = refresh_costs()
     if result["updated"]:
@@ -335,7 +335,7 @@ def calls_refresh_costs(request):
         messages.info(request, "Добирать нечего: у всех строк с id генерации цена уже есть.")
     for err in result["errors"]:
         messages.error(request, err)
-    return redirect("django_aicore:calls")
+    return redirect("aicore:calls")
 
 
 @login_required
@@ -366,29 +366,29 @@ def _proxy_fill_from_post(proxy, post):
 @login_required
 def proxy_add(request):
     if request.method != "POST":
-        return redirect("django_aicore:proxies")
+        return redirect("aicore:proxies")
     if not request.POST.get("host", "").strip():
         messages.error(request, "Хост прокси не может быть пустым.")
-        return redirect("django_aicore:proxies")
+        return redirect("aicore:proxies")
     if not request.POST.get("port", "").strip().isdigit():
         messages.error(request, "Порт прокси не может быть пустым и должен быть числом.")
-        return redirect("django_aicore:proxies")
+        return redirect("aicore:proxies")
     _proxy_fill_from_post(ProxySettings(), request.POST)
     messages.success(request, "Прокси добавлен.")
-    return redirect("django_aicore:proxies")
+    return redirect("aicore:proxies")
 
 
 @login_required
 def proxy_save(request, pk):
     if request.method != "POST":
-        return redirect("django_aicore:proxies")
+        return redirect("aicore:proxies")
     proxy = get_object_or_404(ProxySettings, pk=pk)
     if not request.POST.get("port", "").strip().isdigit():
         messages.error(request, "Порт прокси не может быть пустым и должен быть числом.")
-        return redirect("django_aicore:proxies")
+        return redirect("aicore:proxies")
     _proxy_fill_from_post(proxy, request.POST)
     messages.success(request, "Настройки прокси сохранены.")
-    return redirect("django_aicore:proxies")
+    return redirect("aicore:proxies")
 
 
 @login_required
@@ -397,4 +397,4 @@ def proxy_delete(request, pk):
     if request.method == "POST":
         proxy.delete()
         messages.success(request, "Прокси удалён.")
-    return redirect("django_aicore:proxies")
+    return redirect("aicore:proxies")

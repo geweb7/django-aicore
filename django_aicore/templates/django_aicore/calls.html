@@ -15,7 +15,7 @@
 
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-journal-text me-2 text-muted"></i>Журнал вызовов AI</h4>
-    <form method="post" action="{% url 'django_aicore:calls_refresh_costs' %}">
+    <form method="post" action="{% url 'aicore:calls_refresh_costs' %}">
       {% csrf_token %}
       <button type="submit" class="btn btn-sm btn-dark" {% if not refreshable %}disabled{% endif %}
               title="Спрашивает цену у OpenRouter по id генерации — один запрос на строку">
@@ -85,7 +85,7 @@
     </div>
     <div class="col-sm-1 d-flex gap-1">
       <button type="submit" class="btn btn-sm btn-dark flex-grow-1">Фильтр</button>
-      <a href="{% url 'django_aicore:calls' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить">
+      <a href="{% url 'aicore:calls' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить">
         <i class="bi bi-x-lg"></i>
       </a>
     </div>

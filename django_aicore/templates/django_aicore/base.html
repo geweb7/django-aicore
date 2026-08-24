@@ -18,19 +18,19 @@
     <ul class="navbar-nav">
       <li class="nav-item">
         <a class="nav-link {% if request.resolver_match.url_name == 'providers' or 'provider' in request.resolver_match.url_name %}active{% endif %}"
-           href="{% url 'django_aicore:providers' %}">Провайдеры</a>
+           href="{% url 'aicore:providers' %}">Провайдеры</a>
       </li>
       <li class="nav-item">
         <a class="nav-link {% if request.resolver_match.url_name == 'tasks' or request.resolver_match.url_name == 'task_save' or request.resolver_match.url_name == 'task_delete' %}active{% endif %}"
-           href="{% url 'django_aicore:tasks' %}">Задачи</a>
+           href="{% url 'aicore:tasks' %}">Задачи</a>
       </li>
       <li class="nav-item">
         <a class="nav-link {% if 'prox' in request.resolver_match.url_name %}active{% endif %}"
-           href="{% url 'django_aicore:proxies' %}">Прокси</a>
+           href="{% url 'aicore:proxies' %}">Прокси</a>
       </li>
       <li class="nav-item">
         <a class="nav-link {% if 'calls' in request.resolver_match.url_name %}active{% endif %}"
-           href="{% url 'django_aicore:calls' %}">Журнал</a>
+           href="{% url 'aicore:calls' %}">Журнал</a>
       </li>
     </ul>
   </div>

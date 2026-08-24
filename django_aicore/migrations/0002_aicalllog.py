@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('django_aicore', '0001_initial'),
+        ("aicore", '0001_initial'),
     ]
 
     operations = [
@@ -31,8 +31,8 @@ class Migration(migrations.Migration):
                 ('completion_tokens', models.PositiveIntegerField(blank=True, null=True, verbose_name='Токены ответа')),
                 ('reasoning_tokens', models.PositiveIntegerField(blank=True, null=True, verbose_name='Токены рассуждений')),
                 ('duration_s', models.FloatField(blank=True, null=True, verbose_name='Длительность, с')),
-                ('provider', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='django_aicore.aiprovider', verbose_name='Провайдер')),
-                ('proxy', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='django_aicore.proxysettings', verbose_name='Прокси')),
+                ('provider', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='aicore.aiprovider', verbose_name='Провайдер')),
+                ('proxy', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='aicore.proxysettings', verbose_name='Прокси')),
             ],
             options={
                 'verbose_name': 'Вызов AI',

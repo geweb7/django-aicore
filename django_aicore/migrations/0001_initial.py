@@ -52,7 +52,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(max_length=100, verbose_name='Тег')),
-                ('provider', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='tags', to='django_aicore.aiprovider')),
+                ('provider', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='tags', to='aicore.aiprovider')),
             ],
             options={
                 'verbose_name': 'Тег провайдера',

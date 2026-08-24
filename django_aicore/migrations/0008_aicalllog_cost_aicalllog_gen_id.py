@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('django_aicore', '0007_aiprovider_dialect'),
+        ("aicore", '0007_aiprovider_dialect'),
     ]
 
     operations = [

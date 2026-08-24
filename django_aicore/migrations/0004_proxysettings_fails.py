@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('django_aicore', '0003_aitask_alter_aiprovider_options_aiprovider_priority_and_more'),
+        ("aicore", '0003_aitask_alter_aiprovider_options_aiprovider_priority_and_more'),
     ]
 
     operations = [

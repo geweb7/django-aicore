@@ -2,7 +2,7 @@ from django.urls import path
 
 from . import views
 
-app_name = "django_aicore"
+app_name = "aicore"
 
 urlpatterns = [
     path("task-poll/<str:task_id>/", views.task_poll, name="task_poll"),

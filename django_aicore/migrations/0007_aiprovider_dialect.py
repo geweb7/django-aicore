@@ -6,7 +6,7 @@ def fill_dialect(apps, schema_editor):
     из base_url на лету. Правило переносится сюда один раз и больше нигде не живёт:
     дальше диалект выбирает администратор явно, а не угадывает код при каждом вызове.
     """
-    AIProvider = apps.get_model("django_aicore", "AIProvider")
+    AIProvider = apps.get_model("aicore", "AIProvider")
     for provider in AIProvider.objects.all():
         url = (provider.base_url or "").lower()
         if "generativelanguage.googleapis.com" in url and "openai" not in url:
@@ -21,7 +21,7 @@ def fill_dialect(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("django_aicore", "0006_aiprovider_priority_unique"),
+        ("aicore", "0006_aiprovider_priority_unique"),
     ]
 
     operations = [

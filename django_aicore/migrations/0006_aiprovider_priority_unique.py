@@ -9,7 +9,7 @@ def renumber_duplicates(apps, schema_editor):
     оно не больше предыдущего. Относительный порядок не меняется ни для одной пары,
     значит ни для одной роли не меняется победитель; трогаются только строки-дубли.
     """
-    AIProvider = apps.get_model("django_aicore", "AIProvider")
+    AIProvider = apps.get_model("aicore", "AIProvider")
     last = -1
     for provider in AIProvider.objects.order_by("priority", "id"):
         new = provider.priority if provider.priority > last else last + 1
@@ -22,7 +22,7 @@ def renumber_duplicates(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("django_aicore", "0005_proxysettings_oks_alter_proxysettings_fails"),
+        ("aicore", "0005_proxysettings_oks_alter_proxysettings_fails"),
     ]
 
     operations = [

@@ -26,7 +26,7 @@
           <i class="bi bi-plus me-1"></i>Добавить прокси
         </div>
         <div class="card-body">
-          <form method="post" action="{% url 'django_aicore:proxy_add' %}" id="proxy-add-form">
+          <form method="post" action="{% url 'aicore:proxy_add' %}" id="proxy-add-form">
             {% csrf_token %}
             <div class="mb-3">
               <label class="form-label fw-semibold">Быстрая вставка</label>
@@ -140,7 +140,7 @@
             <span class="text-muted small">создан {{ proxy.created_at|date:"d.m.Y H:i" }}</span>
           </div>
           <div class="card-body">
-            <form method="post" action="{% url 'django_aicore:proxy_save' proxy.pk %}">
+            <form method="post" action="{% url 'aicore:proxy_save' proxy.pk %}">
               {% csrf_token %}
               <div class="row g-3">
 
@@ -191,7 +191,7 @@
               <div class="d-flex gap-2 mt-3">
                 <button type="submit" class="btn btn-sm btn-dark">Сохранить</button>
                 <button type="submit" class="btn btn-sm btn-outline-danger"
-                        formaction="{% url 'django_aicore:proxy_delete' proxy.pk %}"
+                        formaction="{% url 'aicore:proxy_delete' proxy.pk %}"
                         onclick="return confirm('Удалить прокси {{ proxy.host }}:{{ proxy.port }}?')">
                   <i class="bi bi-trash"></i> Удалить
                 </button>
