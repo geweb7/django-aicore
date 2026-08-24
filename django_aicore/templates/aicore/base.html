@@ -6,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}AI{% endblock %}</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
-  <link href="{% static 'django_aicore/vendor/bootstrap.min.css' %}" rel="stylesheet">
-  <link href="{% static 'django_aicore/vendor/bootstrap-icons.min.css' %}" rel="stylesheet">
+  <link href="{% static 'aicore/vendor/bootstrap.min.css' %}" rel="stylesheet">
+  <link href="{% static 'aicore/vendor/bootstrap-icons.min.css' %}" rel="stylesheet">
   {% block extra_css %}{% endblock %}
 </head>
 <body class="bg-light">
@@ -49,7 +49,7 @@
   {% block content %}{% endblock %}
 </div>
 
-<script src="{% static 'django_aicore/vendor/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'aicore/vendor/bootstrap.bundle.min.js' %}"></script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>

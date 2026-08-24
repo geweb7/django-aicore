@@ -56,11 +56,12 @@ urlpatterns = [
 python manage.py migrate
 ```
 
-Примечание: Python-пакет называется `django_aicore`, но ярлык приложения и
-namespace URL остаются `"aicore"` (`reverse("aicore:tasks")`,
-`{% url "aicore:providers" %}`), а таблицы в БД — `aicore_*`. Это сознательно:
-проекты, ранее использовавшие приложение под именем `aicore`, переключаются на
-пакет без переименования таблиц и без переноса данных.
+Примечание: Python-пакет называется `django_aicore`, но ярлык приложения,
+namespace URL и пути шаблонов/статики — `"aicore"` (`reverse("aicore:tasks")`,
+`{% url "aicore:providers" %}`, `{% include "aicore/scripts.html" %}`), а таблицы
+в БД — `aicore_*`. Это сознательно: проекты, ранее использовавшие приложение под
+именем `aicore`, переключаются на пакет без переименования таблиц и без переноса
+данных.
 
 После этого настроить провайдеров: `http://ваш-хост/ai/providers/`
 (или через Django Admin — модели там тоже зарегистрированы).
@@ -77,7 +78,7 @@ namespace URL остаются `"aicore"` (`reverse("aicore:tasks")`,
 Все страницы требуют логина (`login_required`).
 
 Пакет самодостаточен по статике: jQuery 3.7, Bootstrap 5 и bootstrap-icons
-едут внутри (`django_aicore/vendor/`), ничего докладывать в проект не надо.
+едут внутри (`aicore/vendor/`), ничего докладывать в проект не надо.
 
 ## Синхронный вызов AI
 
@@ -251,10 +252,10 @@ task_id, poll_url = run_async(task, dedup_key=f"myapp:update_tips:{pk}")
 ## Подключение фронта
 
 ```django
-{% include "django_aicore/scripts.html" %}   {# в base.html приложения #}
+{% include "aicore/scripts.html" %}   {# в base.html приложения #}
 ```
 
-Даёт jQuery и `django_aicore/js/tasks.js`: глобальные `netErrMsg`, `errorBlockHtml`,
+Даёт jQuery и `aicore/js/tasks.js`: глобальные `netErrMsg`, `errorBlockHtml`,
 `successBlockHtml`, `xhrErrorBlock`, `resumeErrorBlock`, `usageLine`, `pollTask`,
 `startAndPoll`.
 

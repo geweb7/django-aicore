@@ -157,7 +157,7 @@ def providers(request):
     for p in items:
         p.default_roles = default_for.get(p.pk, [])
 
-    return render(request, "django_aicore/providers.html", {
+    return render(request, "aicore/providers.html", {
         "providers": items,
         "sort": sort,
         "dir": "desc" if desc else "asc",
@@ -169,7 +169,7 @@ def providers(request):
 def tasks(request):
     known_tags = sorted(AIProviderTag.objects.filter(provider__is_active=True)
                         .values_list("name", flat=True).distinct())
-    return render(request, "django_aicore/tasks.html", {
+    return render(request, "aicore/tasks.html", {
         "tasks": AITask.objects.all(),
         "known_tags": known_tags,
         "roles": AIProvider.ROLE_CHOICES,
@@ -219,7 +219,7 @@ def provider_add(request):
         tag_formset.save()
         messages.success(request, "Провайдер добавлен.")
         return redirect("aicore:providers")
-    return render(request, "django_aicore/provider_form.html", {
+    return render(request, "aicore/provider_form.html", {
         "form": form, "tag_formset": tag_formset, "title": "Новый провайдер",
     })
 
@@ -234,7 +234,7 @@ def provider_edit(request, pk):
         tag_formset.save()
         messages.success(request, "Провайдер сохранён.")
         return redirect("aicore:providers")
-    return render(request, "django_aicore/provider_form.html", {
+    return render(request, "aicore/provider_form.html", {
         "form": form, "tag_formset": tag_formset, "title": "Редактировать провайдер", "provider": provider,
     })
 
@@ -297,7 +297,7 @@ def calls(request):
     no_cost = AICallLog.objects.filter(kind=AICallLog.KIND_CHAT, cost__isnull=True).count()
     refreshable = refreshable_costs().count()
 
-    return render(request, "django_aicore/calls.html", {
+    return render(request, "aicore/calls.html", {
         "page": page,
         "f": f,
         "totals": totals,
@@ -343,7 +343,7 @@ def proxies(request):
     # Сначала все активные (пул ротации), внутри группы — по тому же ключу, которым
     # транспорт выбирает прокси под запрос; неактивные тем же ключом ниже.
     ordered = sorted(ProxySettings.objects.all(), key=lambda p: (not p.is_active, p.reliability_key))
-    return render(request, "django_aicore/proxies.html", {
+    return render(request, "aicore/proxies.html", {
         "proxies": ordered,
         # Кого возьмёт следующий запрос — спрашиваем сам транспорт, а не пересказываем
         # его логику в шаблоне. Это первый активный из списка выше.
