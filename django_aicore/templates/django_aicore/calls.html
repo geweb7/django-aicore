@@ -1,0 +1,210 @@
+{% extends "django_aicore/base.html" %}
+{% block title %}Журнал вызовов AI{% endblock %}
+
+{% block extra_css %}
+<style>
+  .calls-table td { vertical-align: middle; }
+  .calls-table td.calls-err { max-width: 420px; }
+  .calls-err-text { display: block; max-height: 3.6em; overflow: hidden; cursor: pointer; }
+  .calls-err-text.open { max-height: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div>
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-journal-text me-2 text-muted"></i>Журнал вызовов AI</h4>
+    <form method="post" action="{% url 'django_aicore:calls_refresh_costs' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-sm btn-dark" {% if not refreshable %}disabled{% endif %}
+              title="Спрашивает цену у OpenRouter по id генерации — один запрос на строку">
+        <i class="bi bi-currency-dollar"></i> Обновить цены ({{ refreshable }})
+      </button>
+    </form>
+  </div>
+
+  <form method="get" class="row g-2 align-items-end mb-3">
+    <div class="col-sm-3">
+      <label class="form-label small mb-1">Поиск</label>
+      <input type="text" name="q" value="{{ f.q }}" class="form-control form-control-sm"
+             placeholder="вызывающий, модель, хостер, текст ошибки">
+    </div>
+    <div class="col-sm-1">
+      <label class="form-label small mb-1">Исход</label>
+      <select name="ok" class="form-select form-select-sm">
+        <option value="">все</option>
+        <option value="1" {% if f.ok == '1' %}selected{% endif %}>успех</option>
+        <option value="0" {% if f.ok == '0' %}selected{% endif %}>ошибка</option>
+      </select>
+    </div>
+    <div class="col-sm-1">
+      <label class="form-label small mb-1">Тип</label>
+      <select name="kind" class="form-select form-select-sm">
+        <option value="">все</option>
+        {% for value, label in kinds %}
+          <option value="{{ value }}" {% if f.kind == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-2">
+      <label class="form-label small mb-1">Задача</label>
+      <select name="task" class="form-select form-select-sm">
+        <option value="">все</option>
+        {% for t in tasks %}
+          <option value="{{ t.pk }}" {% if f.task == t.pk|stringformat:"s" %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-2">
+      <label class="form-label small mb-1">Модель</label>
+      <select name="model" class="form-select form-select-sm">
+        <option value="">все</option>
+        {% for m in models %}
+          <option value="{{ m }}" {% if f.model == m %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-1">
+      <label class="form-label small mb-1">Хостер</label>
+      <select name="upstream" class="form-select form-select-sm">
+        <option value="">все</option>
+        {% for u in upstreams %}
+          <option value="{{ u }}" {% if f.upstream == u %}selected{% endif %}>{{ u }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-1">
+      <label class="form-label small mb-1" title="На какой фазе оборвалось">Фаза</label>
+      <select name="error_kind" class="form-select form-select-sm">
+        <option value="">все</option>
+        {% for k in error_kinds %}
+          <option value="{{ k }}" {% if f.error_kind == k %}selected{% endif %}>{{ k }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-1 d-flex gap-1">
+      <button type="submit" class="btn btn-sm btn-dark flex-grow-1">Фильтр</button>
+      <a href="{% url 'django_aicore:calls' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить">
+        <i class="bi bi-x-lg"></i>
+      </a>
+    </div>
+  </form>
+
+  <div class="d-flex justify-content-between align-items-baseline mb-2 small text-muted">
+    <div>
+      Вызовов по фильтру: <span class="fw-semibold">{{ totals.calls }}</span>
+      {% if totals.cost_total != None %}
+        · сумма: <span class="fw-semibold text-dark">${{ totals.cost_total|floatformat:5 }}</span>
+        (по {{ totals.priced }} строкам с ценой{% if totals.priced != totals.calls %}, у остальных цены нет{% endif %})
+      {% else %}
+        · цены нет ни у одной строки в выборке
+      {% endif %}
+    </div>
+    <div>{{ page.paginator.count }} строк, страница {{ page.number }} из {{ page.paginator.num_pages }}</div>
+  </div>
+
+  {% if page.object_list %}
+    <div class="table-responsive bg-white border rounded">
+      <table class="table table-sm table-hover align-middle mb-0 calls-table">
+        <thead class="table-light">
+          <tr>
+            <th style="width:1%">Время</th>
+            <th style="width:1%">Исход</th>
+            <th>Задача / вызывающий</th>
+            <th>Модель</th>
+            <th style="width:1%">Хостер</th>
+            <th style="width:1%" class="text-end">Токены</th>
+            <th style="width:1%" class="text-end">Цена</th>
+            <th style="width:1%" class="text-end">Сек</th>
+            <th style="width:1%">Прокси</th>
+            <th style="width:1%">Ошибка</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in page.object_list %}
+            <tr>
+              <td class="text-muted small text-nowrap">{{ c.created_at|date:"d.m H:i:s" }}</td>
+              <td>
+                {% if c.ok %}
+                  <span class="badge bg-success">ок</span>
+                {% else %}
+                  <span class="badge bg-danger" title="{{ c.error_kind }}">{{ c.error_kind|default:"ошибка" }}</span>
+                {% endif %}
+              </td>
+              <td>
+                <div>{{ c.task|default:c.caller|default:"—" }}</div>
+                {% if c.task and c.caller and c.caller != c.task.name %}
+                  <div class="text-muted small">{{ c.caller }}</div>
+                {% endif %}
+                {% if c.kind == 'embedding' %}<span class="badge bg-light text-muted border">эмбеддинг</span>{% endif %}
+              </td>
+              <td class="small">
+                {{ c.model|default:"—" }}
+                {% if c.finish_reason and c.finish_reason != 'stop' %}
+                  <span class="badge bg-warning text-dark" title="finish_reason">{{ c.finish_reason }}</span>
+                {% endif %}
+              </td>
+              <td class="small text-muted">{{ c.upstream|default:"—" }}</td>
+              <td class="text-end small text-nowrap" title="промпт / completion (из них reasoning)">
+                {% if c.prompt_tokens != None or c.completion_tokens != None %}
+                  {{ c.prompt_tokens|default:"—" }} / {{ c.completion_tokens|default:"—" }}
+                  {% if c.reasoning_tokens %}<span class="text-muted">({{ c.reasoning_tokens }})</span>{% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-end small text-nowrap">
+                {% if c.cost != None %}
+                  ${{ c.cost|floatformat:5 }}
+                {% elif c.gen_id %}
+                  <span class="text-muted" title="Цену можно добрать кнопкой «Обновить цены»">?</span>
+                {% else %}
+                  <span class="text-muted" title="id генерации не сохранён — цену взять неоткуда">—</span>
+                {% endif %}
+              </td>
+              <td class="text-end small text-muted">{{ c.duration_s|default:"—" }}</td>
+              <td class="small text-muted">{{ c.proxy_label|default:"—" }}</td>
+              <td class="calls-err small text-danger">
+                {% if c.error %}
+                  <span class="calls-err-text" onclick="this.classList.toggle('open')"
+                        title="Клик — развернуть">{{ c.error }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if page.paginator.num_pages > 1 %}
+      <nav class="mt-2">
+        <ul class="pagination pagination-sm mb-0">
+          {% if page.has_previous %}
+            <li class="page-item">
+              <a class="page-link" href="?{% if query %}{{ query }}&{% endif %}page={{ page.previous_page_number }}">Назад</a>
+            </li>
+          {% endif %}
+          {% if page.has_next %}
+            <li class="page-item">
+              <a class="page-link" href="?{% if query %}{{ query }}&{% endif %}page={{ page.next_page_number }}">Дальше</a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
+  {% else %}
+    <p class="text-muted">Вызовов по этому фильтру нет.</p>
+  {% endif %}
+
+  <p class="text-muted small mt-3 mb-0">
+    Строка пишется на каждый вызов, включая успешный — иначе доля отказов не считается.
+    Цену называет сам OpenRouter: она приходит в ответе на вызов, а по строкам без цены её
+    добирает кнопка наверху — по id генерации, по одному запросу на строку.
+    {% if stuck %}
+      Ещё у {{ stuck }} чат-вызовов цены не будет никогда: они записаны до того, как слой
+      начал сохранять id генерации, либо шли не через OpenRouter.
+    {% endif %}
+    У эмбеддингов цены нет: они идут своим endpoint-ом мимо OpenRouter.
+  </p>
+
+</div>
+{% endblock %}

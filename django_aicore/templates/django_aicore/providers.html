@@ -1,0 +1,137 @@
+{% extends "django_aicore/base.html" %}
+{% block title %}AI провайдеры{% endblock %}
+
+{% block extra_css %}
+<style>
+  .prov-table th a { color: inherit; text-decoration: none; white-space: nowrap; }
+  .prov-table th a:hover { text-decoration: underline; }
+  .prov-table td { vertical-align: middle; }
+  .prov-off td:not(.prov-actions) { opacity: .5; }
+  .prov-url { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div>
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-cpu me-2 text-muted"></i>AI провайдеры</h4>
+    <a href="{% url 'django_aicore:provider_add' %}" class="btn btn-sm btn-dark">
+      <i class="bi bi-plus"></i> Добавить
+    </a>
+  </div>
+
+  {% if providers %}
+    <div class="table-responsive bg-white border rounded">
+      <table class="table table-sm table-hover align-middle mb-0 prov-table">
+        <thead class="table-light">
+          <tr>
+            <th style="width:1%">
+              <a href="?sort=status&dir={% if sort == 'status' %}{{ next_dir }}{% else %}asc{% endif %}">
+                Статус{% if sort == 'status' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th style="width:1%">
+              <a href="?sort=role&dir={% if sort == 'role' %}{{ next_dir }}{% else %}asc{% endif %}">
+                Роль{% if sort == 'role' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th style="width:1%" class="text-center">
+              <a href="?sort=priority&dir={% if sort == 'priority' %}{{ next_dir }}{% else %}asc{% endif %}"
+                 title="Приоритет: при выборе по роли побеждает меньший">
+                Приор.{% if sort == 'priority' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th style="width:1%">
+              <a href="?sort=dialect&dir={% if sort == 'dialect' %}{{ next_dir }}{% else %}asc{% endif %}"
+                 title="Как формируется запрос: формат тела, заголовки, достраивается ли путь">
+                Диалект{% if sort == 'dialect' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th>
+              <a href="?sort=model&dir={% if sort == 'model' %}{{ next_dir }}{% else %}asc{% endif %}">
+                Модель{% if sort == 'model' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th style="width:1%">
+              <a href="?sort=tags&dir={% if sort == 'tags' %}{{ next_dir }}{% else %}asc{% endif %}">
+                Теги{% if sort == 'tags' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th style="width:1%">Endpoint</th>
+            <th style="width:1%"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in providers %}
+            <tr class="{% if not p.is_active %}prov-off{% endif %}">
+              <td>
+                {% if p.is_active %}
+                  <span class="badge bg-success">активный</span>
+                {% else %}
+                  <span class="badge bg-light text-muted border">выключен</span>
+                {% endif %}
+              </td>
+              <td><span class="badge bg-secondary">{{ p.get_role_display }}</span></td>
+              <td class="text-center text-muted">{{ p.priority }}</td>
+              <td><span class="text-muted small font-monospace">{{ p.dialect }}</span></td>
+              <td>
+                <div class="fw-semibold">
+                  {{ p.model }}
+                  {% for role_label in p.default_roles %}
+                    <span class="badge bg-primary ms-1" title="Выбор по роли без тега вернёт этого провайдера">
+                      <i class="bi bi-star-fill"></i> по умолчанию: {{ role_label }}
+                    </span>
+                  {% endfor %}
+                </div>
+                {% if p.description %}
+                  <div class="text-muted small">{{ p.description }}</div>
+                {% endif %}
+              </td>
+              <td>
+                {% for tag in p.tags.all %}
+                  <span class="badge bg-dark">{{ tag.name }}</span>
+                {% empty %}
+                  <span class="text-muted">—</span>
+                {% endfor %}
+              </td>
+              <td class="prov-url text-muted small font-monospace" title="{{ p.base_url }}">{{ p.base_url }}</td>
+              <td class="prov-actions">
+                <div class="d-flex gap-1 justify-content-end">
+                  <form method="post" action="{% url 'django_aicore:provider_copy' p.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="Копировать">
+                      <i class="bi bi-copy"></i>
+                    </button>
+                  </form>
+                  <a href="{% url 'django_aicore:provider_edit' p.pk %}" class="btn btn-sm btn-outline-secondary" title="Редактировать">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                  <form method="post" action="{% url 'django_aicore:provider_delete' p.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Удалить"
+                            onclick="return confirm('Удалить провайдер {{ p.model }}?')">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-muted small mt-2 mb-0">
+      По умолчанию список сгруппирован по роли, а внутри роли отсортирован по приоритету —
+      в этом порядке <code>get_provider</code> и выбирает провайдера: побеждает меньший
+      приоритет среди активных, значения уникальны. Бейдж <span class="badge bg-primary"><i class="bi bi-star-fill"></i> по умолчанию</span>
+      — кого вернёт вызов по этой роли без тега; он учитывает и перехват тегом с именем роли,
+      и фолбэк «Гений / Умная (альт.) / Дешёвая → Умная».
+    </p>
+  {% else %}
+    <p class="text-muted">Провайдеров нет. Добавьте провайдера (например, OpenRouter или Anthropic).</p>
+  {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,240 @@
+{% extends "django_aicore/base.html" %}
+{% block title %}HTTP-прокси{% endblock %}
+
+{% block content %}
+
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-hdd-network me-2 text-muted"></i>HTTP-прокси</h4>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-4">
+
+      <p class="text-muted small">
+        Все включённые прокси образуют пул ротации. Каждый запрос к ИИ уходит через самый
+        надёжный из них — с наименьшей долей сбоев (а не их числом: 5 сбоев на 500 запросах
+        лучше, чем 2 на 3). Сбой засчитывается, только если запрос не дошёл до провайдера:
+        прокси не ответил, соединение не встало или оборвалось. Ошибка самой модели
+        (HTTP-ошибка, кривой ответ, таймаут ожидания ответа) прокси не наказывает — он свою
+        работу сделал, и такой запрос идёт в успехи. Упавший запрос не переотправляется:
+        через другой прокси пойдёт уже следующий. Список справа отсортирован тем же
+        правилом — активные и надёжные сверху.
+      </p>
+
+      <div class="card">
+        <div class="card-header fw-semibold">
+          <i class="bi bi-plus me-1"></i>Добавить прокси
+        </div>
+        <div class="card-body">
+          <form method="post" action="{% url 'django_aicore:proxy_add' %}" id="proxy-add-form">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Быстрая вставка</label>
+              <input type="text" id="proxy-quick-new" class="form-control form-control-sm font-monospace"
+                     placeholder="65.20.98.145:30049:NuhaiProxy_sjDLU3Cf:1etFVvuC73" autocomplete="off">
+              <div class="form-text" id="proxy-quick-new-hint">
+                host:port:user:pass — при потере фокуса сам разложит по полям ниже.
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Описание</label>
+              <textarea name="description" class="form-control form-control-sm" rows="2"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">IP / хост</label>
+              <input type="text" name="host" class="form-control form-control-sm font-monospace"
+                     placeholder="123.45.67.89" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">HTTP порт</label>
+              <input type="number" name="port" class="form-control form-control-sm font-monospace">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Пользователь</label>
+              <input type="text" name="username" class="form-control form-control-sm font-monospace" autocomplete="off">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Пароль</label>
+              <input type="password" name="password" class="form-control form-control-sm font-monospace" autocomplete="off">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Дата окончания</label>
+              <input type="date" name="expires_at" class="form-control form-control-sm">
+            </div>
+            <div class="form-check mt-2 mb-3">
+              <input type="checkbox" name="is_active" class="form-check-input" id="proxy-active-new">
+              <label class="form-check-label" for="proxy-active-new">Сразу включить в пул ротации</label>
+            </div>
+
+            <button type="submit" class="btn btn-sm btn-dark">Добавить</button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="col-lg-8">
+
+      <div class="fw-semibold mb-2">{{ proxies|length }} прокси</div>
+
+      {% if proxies %}
+        <div class="table-responsive mb-4">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>IP</th>
+                <th>Описание</th>
+                <th>Статистика</th>
+                <th>Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for proxy in proxies %}
+                <tr class="{% if not proxy.is_active %}opacity-50{% endif %}">
+                  <td class="font-monospace text-nowrap">{{ proxy.host }}:{{ proxy.port }}</td>
+                  <td class="text-muted small">{{ proxy.description|truncatechars:60|default:"—" }}</td>
+                  <td class="text-muted small text-nowrap">
+                    {% if proxy.calls %}
+                      {{ proxy.oks }} ok / {{ proxy.fails }} fail — {{ proxy.fail_rate }}%
+                    {% else %}
+                      no calls yet
+                    {% endif %}
+                  </td>
+                  <td class="text-nowrap">
+                    {% if proxy.is_active %}
+                      <span class="badge bg-success">в пуле</span>
+                    {% else %}
+                      <span class="badge bg-secondary">выключен</span>
+                    {% endif %}
+                    {% if next_proxy and next_proxy.pk == proxy.pk %}
+                      <span class="badge bg-primary ms-1">следующий</span>
+                    {% endif %}
+                    {% if proxy.expires_at %}
+                      <span class="badge bg-light text-muted ms-1">до {{ proxy.expires_at|date:"d.m.Y" }}</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
+      {% for proxy in proxies %}
+        <div class="card mb-4{% if not proxy.is_active %} opacity-50{% endif %}">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-semibold font-monospace">
+              {{ proxy.host }}:{{ proxy.port }}
+              {% if next_proxy and next_proxy.pk == proxy.pk %}
+                <span class="badge bg-primary ms-1">следующий запрос — сюда</span>
+              {% endif %}
+              {% if proxy.calls %}
+                <span class="badge bg-light text-muted ms-1">
+                  {{ proxy.oks }} ok / {{ proxy.fails }} fail — {{ proxy.fail_rate }}% fails
+                </span>
+              {% else %}
+                <span class="badge bg-light text-muted ms-1">no calls yet</span>
+              {% endif %}
+            </span>
+            <span class="text-muted small">создан {{ proxy.created_at|date:"d.m.Y H:i" }}</span>
+          </div>
+          <div class="card-body">
+            <form method="post" action="{% url 'django_aicore:proxy_save' proxy.pk %}">
+              {% csrf_token %}
+              <div class="row g-3">
+
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">Описание</label>
+                    <textarea name="description" class="form-control form-control-sm" rows="2">{{ proxy.description }}</textarea>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">IP / хост</label>
+                    <input type="text" name="host" class="form-control form-control-sm font-monospace"
+                           value="{{ proxy.host }}" placeholder="123.45.67.89">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">HTTP порт</label>
+                    <input type="number" name="port" class="form-control form-control-sm font-monospace"
+                           value="{{ proxy.port }}">
+                  </div>
+                </div>
+
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">Пользователь</label>
+                    <input type="text" name="username" class="form-control form-control-sm font-monospace"
+                           value="{{ proxy.username }}" autocomplete="off">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">Пароль</label>
+                    <input type="password" name="password" class="form-control form-control-sm font-monospace"
+                           value="{{ proxy.password }}" autocomplete="off">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">Дата окончания</label>
+                    <input type="date" name="expires_at" class="form-control form-control-sm"
+                           value="{{ proxy.expires_at|date:'Y-m-d' }}">
+                    <div class="form-text">Наступит — галочка снимется сама, в описание допишется лог.</div>
+                  </div>
+                  <div class="form-check mt-2">
+                    <input type="checkbox" name="is_active" class="form-check-input" id="proxy-active-{{ proxy.pk }}"
+                           {% if proxy.is_active %}checked{% endif %}>
+                    <label class="form-check-label" for="proxy-active-{{ proxy.pk }}">
+                      Использовать для запросов к ИИ
+                    </label>
+                  </div>
+                </div>
+
+              </div>
+              <div class="d-flex gap-2 mt-3">
+                <button type="submit" class="btn btn-sm btn-dark">Сохранить</button>
+                <button type="submit" class="btn btn-sm btn-outline-danger"
+                        formaction="{% url 'django_aicore:proxy_delete' proxy.pk %}"
+                        onclick="return confirm('Удалить прокси {{ proxy.host }}:{{ proxy.port }}?')">
+                  <i class="bi bi-trash"></i> Удалить
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      {% empty %}
+        <p class="text-muted">Прокси не настроены — запросы к ИИ идут напрямую.</p>
+      {% endfor %}
+
+    </div>
+  </div>
+
+<script>
+(function () {
+  var quick = document.getElementById('proxy-quick-new');
+  var form = document.getElementById('proxy-add-form');
+  var hint = document.getElementById('proxy-quick-new-hint');
+  if (!quick || !form || !hint) return;
+
+  function parseQuick() {
+    var value = quick.value.trim();
+    if (!value) return;
+    var i1 = value.indexOf(':');
+    var i2 = i1 === -1 ? -1 : value.indexOf(':', i1 + 1);
+    var i3 = i2 === -1 ? -1 : value.indexOf(':', i2 + 1);
+    var port = i2 === -1 ? '' : value.slice(i1 + 1, i2);
+    if (i1 === -1 || i2 === -1 || i3 === -1 || !/^\d+$/.test(port)) {
+      hint.textContent = 'Не распознано — ожидается host:port:user:pass.';
+      hint.classList.add('text-danger');
+      return;
+    }
+    form.elements['host'].value = value.slice(0, i1);
+    form.elements['port'].value = port;
+    form.elements['username'].value = value.slice(i2 + 1, i3);
+    form.elements['password'].value = value.slice(i3 + 1);
+    hint.textContent = 'Разложено по полям ниже — можно поправить и сохранить.';
+    hint.classList.remove('text-danger');
+  }
+
+  quick.addEventListener('blur', parseQuick);
+  quick.addEventListener('paste', function () { setTimeout(parseQuick, 0); });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,167 @@
+{% extends "django_aicore/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div style="max-width:640px">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">{{ title }}</h5>
+    <a href="{% url 'django_aicore:providers' %}" class="btn btn-sm btn-outline-secondary">Отмена</a>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    {% comment %}
+      Ошибки, которым негде показаться у своего поля: общие ошибки формы и формсета,
+      ошибки скрытых полей (id тега) и ошибки уровня строки тега (дубль). Без этого блока
+      невалидная форма молча перерисовывается, и «не сохранилось» выглядит как поломка
+      сохранения, а не как отвергнутый ввод.
+    {% endcomment %}
+    {% if form.errors or tag_formset.non_form_errors or tag_formset.errors %}
+      <div class="alert alert-danger small">
+        <strong>Не сохранено — форма отклонена.</strong> Проверьте подсвеченные красным поля ниже.
+        <ul class="mb-0 ps-3">
+          {% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}
+          {% for e in tag_formset.non_form_errors %}<li>Теги: {{ e }}</li>{% endfor %}
+          {% for f in form.hidden_fields %}{% for e in f.errors %}<li>{{ f.name }}: {{ e }}</li>{% endfor %}{% endfor %}
+          {% for tf in tag_formset %}
+            {% for e in tf.non_field_errors %}<li>Тег #{{ forloop.parentloop.counter }}: {{ e }}</li>{% endfor %}
+            {% for f in tf.hidden_fields %}{% for e in f.errors %}<li>Тег #{{ forloop.parentloop.parentloop.counter }}: служебное поле «{{ f.name }}» не пришло — страница была открыта до обновления кода. Обновите страницу (F5) и сохраните заново.</li>{% endfor %}{% endfor %}
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Описание</div>
+      <div class="card-body">
+        <label class="form-label fw-semibold" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+        {{ form.description }}
+        {% for e in form.description.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Подключение</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold" for="{{ form.api_key.id_for_label }}">{{ form.api_key.label }}</label>
+          {{ form.api_key }}
+          {% for e in form.api_key.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold" for="{{ form.model.id_for_label }}">{{ form.model.label }}</label>
+          {{ form.model }}
+          {% for e in form.model.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold" for="{{ form.base_url.id_for_label }}">{{ form.base_url.label }}</label>
+          {{ form.base_url }}
+          {% for e in form.base_url.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold" for="{{ form.dialect.id_for_label }}">{{ form.dialect.label }}</label>
+          {{ form.dialect }}
+          <div class="form-text">
+            Чем определяется формат запроса. Раньше выводился из домена, и всё неизвестное
+            молча считалось OpenAI-совместимым — теперь выбирается явно.
+            <strong>OpenAI-совместимый</strong> — POST уходит ровно на указанный endpoint,
+            путь не достраивается (сюда же Anthropic, TokenRouter, Groq, DeepSeek и прочие).
+            <strong>Gemini</strong> — своё тело запроса, путь и модель дописываются к базе.
+            <strong>OpenRouter</strong> — свои заголовки, адрес запроса зашит в коде.
+          </div>
+          {% for e in form.dialect.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold" for="{{ form.role.id_for_label }}">{{ form.role.label }}</label>
+          {{ form.role }}
+          {% for e in form.role.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="alert alert-info small mb-0">
+          <strong>Примеры endpoint</strong> (у OpenAI-совместимых — всегда полный путь метода,
+          не корень <code>/v1</code>):<br>
+          Anthropic: <code>https://api.anthropic.com/v1/messages</code><br>
+          OpenAI: <code>https://api.openai.com/v1/chat/completions</code><br>
+          OpenRouter: <code>https://openrouter.ai/api/v1/chat/completions</code><br>
+          TokenRouter: <code>https://api.tokenrouter.com/v1/chat/completions</code><br>
+          Groq: <code>https://api.groq.com/openai/v1/chat/completions</code><br>
+          DeepSeek: <code>https://api.deepseek.com/v1/chat/completions</code><br>
+          Gemini: <code>https://generativelanguage.googleapis.com/v1beta</code><br>
+          Эмбеддинги (роль «Эмбеддинг»): <code>https://api.openai.com/v1/embeddings</code>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Параметры</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold" for="{{ form.priority.id_for_label }}">{{ form.priority.label }}</label>
+          {{ form.priority }}
+          <div class="form-text">
+            Когда задача не указывает тег, провайдера выбирают по роли — и побеждает
+            <strong>меньший приоритет</strong> среди активных. Значения уникальны: при равных
+            победитель определялся бы порядком добавления, а это чёрный ящик.
+          </div>
+          {% for e in form.priority.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label fw-semibold" for="{{ form.timeout.id_for_label }}">{{ form.timeout.label }}</label>
+            {{ form.timeout }}
+            {% for e in form.timeout.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold" for="{{ form.temperature.id_for_label }}">{{ form.temperature.label }}</label>
+            {{ form.temperature }}
+            {% for e in form.temperature.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+        </div>
+        <div class="form-check">
+          {{ form.is_active }}
+          <label class="form-check-label" for="{{ form.is_active.id_for_label }}">{{ form.is_active.label }}</label>
+          {% for e in form.is_active.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Теги</div>
+      <div class="card-body">
+        <div class="form-text mb-2">Используются для выбора провайдера в приложениях. Один провайдер — несколько тегов.</div>
+        {{ tag_formset.management_form }}
+        {% for tf in tag_formset %}
+          {% comment %}
+            id тега и FK на провайдера. Django требует id у каждой существующей строки
+            формсета (в _construct_form он помечается required); без этих input'ов POST
+            приходит без id, формсет валится и НИЧЕГО не сохраняется — включая саму форму
+            провайдера, потому что вью сохраняет их только вместе.
+          {% endcomment %}
+          {% for h in tf.hidden_fields %}{{ h }}{% endfor %}
+          <div class="d-flex align-items-center gap-2 mb-2">
+            {{ tf.name }}
+            {% if tf.instance.pk %}
+              <div class="form-check mb-0">
+                {{ tf.DELETE }}
+                <label class="form-check-label small text-danger" for="{{ tf.DELETE.id_for_label }}">удалить</label>
+              </div>
+            {% endif %}
+            {% for e in tf.name.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="alert alert-warning small">
+      <strong>Gemini — особенности:</strong>
+      <ul class="mb-0 ps-3">
+        <li>В endpoint достаточно базы <code>…/v1beta</code>. Путь и ключ дописываются автоматически.</li>
+        <li>В поле «Модель» — только имя без <code>models/</code>. Например: <code>gemini-2.5-flash</code>.</li>
+        <li>HTTP 404 — неверное имя модели или лишний <code>/models</code> в endpoint.</li>
+      </ul>
+    </div>
+
+    <button type="submit" class="btn btn-dark">Сохранить</button>
+  </form>
+</div>
+{% endblock %}

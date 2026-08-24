@@ -1,0 +1,89 @@
+{% extends "django_aicore/base.html" %}
+{% block title %}AI задачи{% endblock %}
+
+{% block content %}
+<div style="max-width:960px">
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h4 class="mb-0"><i class="bi bi-sliders me-2 text-muted"></i>AI задачи</h4>
+    <a href="{% url 'django_aicore:providers' %}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-cpu"></i> Провайдеры
+    </a>
+  </div>
+
+  <p class="text-muted small mb-4">
+    Задачи регистрируются сами при первом вызове — со значениями из кода. Здесь их можно
+    переопределить, не трогая исходники. Пусто в поле = берём значение из кода.
+    Задача, которую ещё ни разу не запускали, в списке не появится.
+  </p>
+
+  {% if tasks %}
+    <div class="list-group list-group-flush">
+      {% for t in tasks %}
+        <div class="list-group-item px-0 py-3">
+          <div class="mb-2">
+            <span class="fw-semibold">{{ t.name|default:t.key }}</span>
+            <code class="small text-muted ms-2">{{ t.key }}</code>
+          </div>
+
+          <div class="text-muted small mb-2">
+            Из кода: роль <span class="badge bg-light text-dark border">{{ t.default_role|default:"—" }}</span>
+            temperature <span class="badge bg-light text-dark border">
+              {% if t.default_temperature != None %}{{ t.default_temperature }}{% else %}—{% endif %}
+            </span>
+          </div>
+
+          <form method="post" action="{% url 'django_aicore:task_save' t.pk %}" class="row g-2 align-items-end">
+            {% csrf_token %}
+
+            <div class="col-sm-4">
+              <label class="form-label small mb-1">Тег провайдера</label>
+              <input type="text" name="tag" value="{{ t.tag }}" list="tags-{{ t.pk }}"
+                     class="form-control form-control-sm" placeholder="— не выбирать по тегу —">
+              <datalist id="tags-{{ t.pk }}">
+                {% for tag in known_tags %}<option value="{{ tag }}">{% endfor %}
+              </datalist>
+            </div>
+
+            <div class="col-sm-3">
+              <label class="form-label small mb-1">Роль (замена)</label>
+              <select name="role" class="form-select form-select-sm">
+                <option value="">— из кода —</option>
+                {% for value, label in roles %}
+                  <option value="{{ value }}" {% if t.role == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-sm-2">
+              <label class="form-label small mb-1">Temperature</label>
+              <input type="text" name="temperature" class="form-control form-control-sm"
+                     value="{% if t.temperature != None %}{{ t.temperature }}{% endif %}"
+                     placeholder="из кода">
+            </div>
+
+            <div class="col-sm-3 d-flex gap-1">
+              <button type="submit" class="btn btn-sm btn-dark flex-grow-1">Сохранить</button>
+            </div>
+          </form>
+
+          <form method="post" action="{% url 'django_aicore:task_delete' t.pk %}" class="mt-2">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-link btn-sm p-0 text-danger"
+                    style="font-size:12px"
+                    onclick="return confirm('Сбросить настройки задачи «{{ t }}» к значениям из кода?')">
+              сбросить к коду
+            </button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-muted">
+      Задач пока нет: ни один вызов через реестр ещё не проходил. Запустите любой AI-сценарий,
+      переведённый на <code>call_task()</code>, и он появится здесь.
+    </p>
+  {% endif %}
+
+</div>
+{% endblock %}
