@@ -5,15 +5,19 @@ import tempfile
 import threading
 import traceback
 import uuid
+from datetime import timedelta
+from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.core.paginator import Paginator
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from .core import AIUnavailableError, get_provider, refresh_costs, refreshable_costs
@@ -263,6 +267,31 @@ def provider_delete(request, pk):
     return redirect("aicore:providers")
 
 
+# Значение фильтра «приложение», означающее пустое поле app. Пустая строка занята
+# смыслом «все», поэтому нужен отдельный символ: иначе «строки без приложения» с экрана
+# не выбрать, а именно на них сходится проверка «сумма по приложениям = общей сумме».
+APP_NONE = "-"
+
+
+def _calls_period(f):
+    """Границы периода из GET → (qs-фильтр, сообщения об ошибках разбора).
+
+    Дата, а не «сегодня/7/30» отдельным параметром: период в ссылке должен читаться
+    глазами и не меняться назавтра. Быстрые кнопки в шапке — те же ссылки с проставленными
+    датами, отдельного механизма под них нет.
+    """
+    lookups, errors = {}, []
+    for key, lookup in (("from", "created_at__date__gte"), ("to", "created_at__date__lte")):
+        if not f[key]:
+            continue
+        parsed = parse_date(f[key])
+        if parsed is None:
+            errors.append(f"«{f[key]}» — не дата (ждём ГГГГ-ММ-ДД). Период по «{key}» не применён.")
+            continue
+        lookups[lookup] = parsed
+    return lookups, errors
+
+
 @login_required
 def calls(request):
     """Журнал вызовов AI. Фильтры — GET-параметрами, чтобы отфильтрованный экран можно
@@ -270,7 +299,8 @@ def calls(request):
     qs = AICallLog.objects.select_related("task", "provider")
 
     f = {k: (request.GET.get(k) or "").strip()
-         for k in ("q", "ok", "kind", "error_kind", "model", "upstream", "task")}
+         for k in ("q", "ok", "kind", "error_kind", "model", "upstream", "task", "app",
+                   "http", "from", "to")}
     if f["q"]:
         qs = qs.filter(Q(caller__icontains=f["q"]) | Q(model__icontains=f["q"])
                        | Q(upstream__icontains=f["q"]) | Q(error__icontains=f["q"]))
@@ -281,6 +311,38 @@ def calls(request):
             qs = qs.filter(**{field: f[field]})
     if f["task"]:
         qs = qs.filter(task_id=f["task"])
+    if f["http"]:
+        if f["http"].isdigit():
+            qs = qs.filter(http_status=int(f["http"]))
+        else:
+            # Молча показать всё — значит соврать: экран выглядел бы отфильтрованным.
+            messages.error(request, f"«{f['http']}» — не HTTP-код. Фильтр по коду не применён.")
+
+    period, period_errors = _calls_period(f)
+    for err in period_errors:
+        messages.error(request, err)
+    qs = qs.filter(**period)
+
+    # Сводка по приложениям считается ДО фильтра по приложению — иначе таблица «чьи это
+    # вызовы» показывала бы одну строку, ту самую, которую и так выбрали. Все остальные
+    # фильтры (период, исход, модель) в неё входят: сравнивать надо в одних условиях.
+    by_app = list(
+        qs.values("app")
+          .annotate(calls=Count("id"),
+                    priced=Count("cost"),
+                    # Строки без цены названы отдельным числом, а не выведены вычитанием
+                    # в шаблоне: сумма по приложению с ними не сходится, и молчать об этом
+                    # нельзя — «$0.4» при десяти неоценённых строках вводит в заблуждение.
+                    unpriced=Count("id") - Count("cost"),
+                    cost_total=Coalesce(Sum("cost"), Value(Decimal("0"),
+                                        output_field=DecimalField(max_digits=12, decimal_places=8))),
+                    tokens=Coalesce(Sum("prompt_tokens"), Value(0))
+                           + Coalesce(Sum("completion_tokens"), Value(0)))
+          .order_by("-cost_total", "-calls")
+    )
+
+    if f["app"]:
+        qs = qs.filter(app="" if f["app"] == APP_NONE else f["app"])
 
     # Сумма — по отфильтрованному, а не по странице: цена вопроса «сколько стоил этот
     # сценарий» и есть смысл фильтра. priced отдельно, потому что строки без цены в сумму
@@ -294,6 +356,25 @@ def calls(request):
     params = request.GET.copy()
     params.pop("page", None)
 
+    # Ссылки строк сводки: те же условия, но с другим приложением — свой app не тащим.
+    app_params = params.copy()
+    app_params.pop("app", None)
+
+    # Быстрые периоды — обычные ссылки с датами, сохраняющие прочие фильтры.
+    # timezone.now().date(), а не localdate(): пакет обязан работать и при USE_TZ=False,
+    # где localtime() на naive datetime падает всегда.
+    today = timezone.now().date()
+    period_params = request.GET.copy()
+    for key in ("from", "to", "page"):
+        period_params.pop(key, None)
+    quick = []
+    for label, start in (("сегодня", today), ("7 дней", today - timedelta(days=6)),
+                         ("30 дней", today - timedelta(days=29))):
+        p = period_params.copy()
+        p["from"] = start.isoformat()
+        quick.append({"label": label, "query": p.urlencode(),
+                      "active": f["from"] == start.isoformat() and not f["to"]})
+
     no_cost = AICallLog.objects.filter(kind=AICallLog.KIND_CHAT, cost__isnull=True).count()
     refreshable = refreshable_costs().count()
 
@@ -301,18 +382,27 @@ def calls(request):
         "page": page,
         "f": f,
         "totals": totals,
+        "by_app": by_app,
+        "app_none": APP_NONE,
+        "quick": quick,
+        "period_reset": period_params.urlencode(),
         "query": params.urlencode(),
+        "query_no_app": app_params.urlencode(),
         "refreshable": refreshable,
         # Цену этих строк не добрать ничем: id генерации у них нет (записаны до того, как
         # слой начал его сохранять) либо провайдер уже не openrouter-овский.
         "stuck": no_cost - refreshable,
         "tasks": AITask.objects.all(),
+        "apps": sorted(set(AICallLog.objects.exclude(app="")
+                           .values_list("app", flat=True).distinct())),
         "models": sorted(set(AICallLog.objects.exclude(model="")
                              .values_list("model", flat=True).distinct())),
         "upstreams": sorted(set(AICallLog.objects.exclude(upstream="")
                                 .values_list("upstream", flat=True).distinct())),
         "error_kinds": sorted(set(AICallLog.objects.exclude(error_kind="")
                                   .values_list("error_kind", flat=True).distinct())),
+        "http_statuses": sorted(AICallLog.objects.filter(http_status__isnull=False)
+                                .values_list("http_status", flat=True).distinct()),
         "kinds": AICallLog.KIND_CHOICES,
     })
 

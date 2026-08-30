@@ -9,7 +9,7 @@ from urllib.parse import quote, urlparse
 
 import requests
 
-from .models import AIProvider, ProxySettings, api_url_is_root
+from .models import AIProvider, AIProviderTag, ProxySettings, api_url_is_root
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,20 @@ def calling_app():
             return root
         frame = frame.f_back
     return ""
+
+
+def resolve_app(task=None):
+    """Приложение-инициатор вызова — одно значение и для X-Title, и для журнала.
+
+    Раздваивать нельзя: OpenRouter в Activity разбивал бы траты по одному признаку, а
+    наш собственный экран — по другому, и сойтись они не обязаны.
+
+    Слаг задачи — страховка на случай вызова не из приложения (management-команда самого
+    слоя, shell); последний фолбэк называет слой честным именем, а не оставляет пусто:
+    пустое поле в журнале означает «вызов записан до появления поля», и путать эти два
+    случая нельзя.
+    """
+    return calling_app() or (task.key.split(".", 1)[0] if task else "") or "django_aicore"
 
 
 def get_provider(role="smart"):
@@ -416,6 +430,10 @@ def _log_call(kind, provider, caller, meta, usage, error=None, task=None):
 
     Возвращает созданную строку: её id уезжает в usage, иначе вызывающий не может
     связать свой ход с журналом — по caller туда склеиваются все ходы всех сценариев.
+
+    Приложение спрашивается здесь, а не принимается аргументом: сюда сходятся ВСЕ пути
+    записи (чат через реестр, легаси-call, эмбеддинги), и новый путь получает атрибуцию
+    сам. Аргумент пришлось бы не забыть в каждой новой точке — а забывается такое сразу.
     """
     from .models import AICallLog
 
@@ -425,6 +443,7 @@ def _log_call(kind, provider, caller, meta, usage, error=None, task=None):
     return AICallLog.objects.create(
         kind=kind,
         task=task,
+        app=resolve_app(task)[:50],
         caller=(caller or "")[:100],
         provider=provider,
         role=provider.role if provider else "",
@@ -554,6 +573,23 @@ def resolve_task(key, name="", role="smart", temperature=None):
     provider = None
     if task.tag:
         provider = AIProvider.objects.filter(is_active=True, tags__name=task.tag).first()
+        if provider is None:
+            # Тег — прицел в конкретный провайдер, а не пожелание. Уйти отсюда на роль
+            # значило бы молча заменить выбранную модель другой и выставить за неё счёт:
+            # в журнале это выглядит обычной успешной строкой, и заметить подмену нечем.
+            # Провайдер мог быть выключен или переименован уже после настройки задачи, а
+            # выпадашка тегов в UI собирается только по активным — строка в задаче при
+            # этом остаётся и продолжает промахиваться.
+            known = sorted(AIProviderTag.objects.filter(provider__is_active=True)
+                           .values_list("name", flat=True).distinct())
+            raise AIUnavailableError(
+                f"Задача «{task}» (ключ {task.key}) настроена на провайдера с тегом "
+                f"«{task.tag}», но активного провайдера с таким тегом нет. "
+                f"Теги активных провайдеров: {', '.join(known) if known else '(ни одного)'}. "
+                f"Включите нужный провайдер или смените тег задачи в разделе Настройки → "
+                f"AI → Задачи. На роль «{task.effective_role}» вызов не уведён намеренно: "
+                f"это была бы другая модель за другие деньги без единого следа."
+            )
     if provider is None:
         provider = get_provider(task.effective_role)
 
@@ -610,11 +646,8 @@ def _run_chat(provider, messages, max_tokens, timeout, temperature, extra_payloa
         "temperature": temperature if temperature is not None else provider.temperature,
     }
     # Приложение-инициатор уходит в X-Title, чтобы OpenRouter в Activity разбивал траты по
-    # приложениям на общем ключе. Берём из стека вызова: слаг задачи знает только call_task,
-    # а легаси-call() задачи не имеет — и весь его трафик (весь promo, весь plants, часть
-    # atlas) годами уходил под «aicore». Слаг остаётся страховкой на случай вызова не из
-    # приложения (management-команда самого aicore, shell).
-    app = calling_app() or (task.key.split(".", 1)[0] if task else "") or "django_aicore"
+    # приложениям на общем ключе. Тем же значением пишется поле app в журнале (resolve_app).
+    app = resolve_app(task)
     try:
         content, usage = _call_provider(provider, messages, max_tokens=max_tokens, timeout=timeout,
                                         temperature=temperature, extra_payload=extra_payload,

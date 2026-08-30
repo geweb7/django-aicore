@@ -24,30 +24,23 @@
     </form>
   </div>
 
-  <form method="get" class="row g-2 align-items-end mb-3">
+  <form method="get" class="row g-2 align-items-end mb-2">
     <div class="col-sm-3">
       <label class="form-label small mb-1">Поиск</label>
       <input type="text" name="q" value="{{ f.q }}" class="form-control form-control-sm"
              placeholder="вызывающий, модель, хостер, текст ошибки">
     </div>
-    <div class="col-sm-1">
-      <label class="form-label small mb-1">Исход</label>
-      <select name="ok" class="form-select form-select-sm">
-        <option value="">все</option>
-        <option value="1" {% if f.ok == '1' %}selected{% endif %}>успех</option>
-        <option value="0" {% if f.ok == '0' %}selected{% endif %}>ошибка</option>
-      </select>
-    </div>
-    <div class="col-sm-1">
-      <label class="form-label small mb-1">Тип</label>
-      <select name="kind" class="form-select form-select-sm">
-        <option value="">все</option>
-        {% for value, label in kinds %}
-          <option value="{{ value }}" {% if f.kind == value %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </div>
     <div class="col-sm-2">
+      <label class="form-label small mb-1">Приложение</label>
+      <select name="app" class="form-select form-select-sm">
+        <option value="">все</option>
+        {% for a in apps %}
+          <option value="{{ a }}" {% if f.app == a %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+        <option value="{{ app_none }}" {% if f.app == app_none %}selected{% endif %}>не записано</option>
+      </select>
+    </div>
+    <div class="col-sm-3">
       <label class="form-label small mb-1">Задача</label>
       <select name="task" class="form-select form-select-sm">
         <option value="">все</option>
@@ -65,7 +58,7 @@
         {% endfor %}
       </select>
     </div>
-    <div class="col-sm-1">
+    <div class="col-sm-2">
       <label class="form-label small mb-1">Хостер</label>
       <select name="upstream" class="form-select form-select-sm">
         <option value="">все</option>
@@ -74,7 +67,25 @@
         {% endfor %}
       </select>
     </div>
+
     <div class="col-sm-1">
+      <label class="form-label small mb-1">Тип</label>
+      <select name="kind" class="form-select form-select-sm">
+        <option value="">все</option>
+        {% for value, label in kinds %}
+          <option value="{{ value }}" {% if f.kind == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-1">
+      <label class="form-label small mb-1">Исход</label>
+      <select name="ok" class="form-select form-select-sm">
+        <option value="">все</option>
+        <option value="1" {% if f.ok == '1' %}selected{% endif %}>успех</option>
+        <option value="0" {% if f.ok == '0' %}selected{% endif %}>ошибка</option>
+      </select>
+    </div>
+    <div class="col-sm-2">
       <label class="form-label small mb-1" title="На какой фазе оборвалось">Фаза</label>
       <select name="error_kind" class="form-select form-select-sm">
         <option value="">все</option>
@@ -83,13 +94,38 @@
         {% endfor %}
       </select>
     </div>
-    <div class="col-sm-1 d-flex gap-1">
+    <div class="col-sm-1">
+      <label class="form-label small mb-1" title="HTTP-код ответа провайдера">HTTP</label>
+      <select name="http" class="form-select form-select-sm">
+        <option value="">все</option>
+        {% for s in http_statuses %}
+          <option value="{{ s }}" {% if f.http == s|stringformat:"s" %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-2">
+      <label class="form-label small mb-1">Период с</label>
+      <input type="date" name="from" value="{{ f.from }}" class="form-control form-control-sm">
+    </div>
+    <div class="col-sm-2">
+      <label class="form-label small mb-1">по</label>
+      <input type="date" name="to" value="{{ f.to }}" class="form-control form-control-sm">
+    </div>
+    <div class="col-sm-3 d-flex gap-1">
       <button type="submit" class="btn btn-sm btn-dark flex-grow-1">Фильтр</button>
-      <a href="{% url 'aicore:calls' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить">
+      <a href="{% url 'aicore:calls' %}" class="btn btn-sm btn-outline-secondary" title="Сбросить всё">
         <i class="bi bi-x-lg"></i>
       </a>
     </div>
   </form>
+
+  <div class="small text-muted mb-3">
+    Быстро:
+    {% for p in quick %}
+      <a href="?{{ p.query }}" class="{% if p.active %}fw-semibold text-dark{% endif %}">{{ p.label }}</a> ·
+    {% endfor %}
+    <a href="?{{ period_reset }}" class="{% if not f.from and not f.to %}fw-semibold text-dark{% endif %}">за всё время</a>
+  </div>
 
   <div class="d-flex justify-content-between align-items-baseline mb-2 small text-muted">
     <div>
@@ -104,6 +140,43 @@
     <div>{{ page.paginator.count }} строк, страница {{ page.number }} из {{ page.paginator.num_pages }}</div>
   </div>
 
+  {% if by_app %}
+    <div class="table-responsive bg-white border rounded mb-3">
+      <table class="table table-sm mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Приложение{% if f.app %} <span class="fw-normal text-muted small">— сводка считается по всем, фильтр на неё не влияет</span>{% endif %}</th>
+            <th class="text-end" style="width:1%">Вызовов</th>
+            <th class="text-end" style="width:1%">Токенов</th>
+            <th class="text-end" style="width:1%">$</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in by_app %}
+            <tr {% if f.app == row.app or f.app == app_none and not row.app %}class="table-active"{% endif %}>
+              <td>
+                <a href="?{% if query_no_app %}{{ query_no_app }}&{% endif %}app={% if row.app %}{{ row.app }}{% else %}{{ app_none }}{% endif %}">
+                  {% if row.app %}{{ row.app }}{% else %}не записано{% endif %}
+                </a>
+                {% if not row.app %}
+                  <span class="text-muted small">— строки старше поля «приложение» либо вызов не из приложения</span>
+                {% endif %}
+              </td>
+              <td class="text-end">{{ row.calls }}</td>
+              <td class="text-end">{{ row.tokens }}</td>
+              <td class="text-end text-nowrap">
+                ${{ row.cost_total|floatformat:4 }}
+                {% if row.unpriced %}
+                  <span class="text-muted" title="строк без цены: {{ row.unpriced }} — в сумму они не вошли">+{{ row.unpriced }}?</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
   {% if page.object_list %}
     <div class="table-responsive bg-white border rounded">
       <table class="table table-sm table-hover align-middle mb-0 calls-table">
@@ -111,7 +184,8 @@
           <tr>
             <th style="width:1%">Время</th>
             <th style="width:1%">Исход</th>
-            <th>Задача / вызывающий</th>
+            <th style="width:1%" title="HTTP-код ответа провайдера">HTTP</th>
+            <th>Приложение / задача</th>
             <th>Модель</th>
             <th style="width:1%">Хостер</th>
             <th style="width:1%" class="text-end">Токены</th>
@@ -132,7 +206,15 @@
                   <span class="badge bg-danger" title="{{ c.error_kind }}">{{ c.error_kind|default:"ошибка" }}</span>
                 {% endif %}
               </td>
+              <td class="text-end small text-nowrap">
+                {% if c.http_status %}
+                  <span class="{% if c.http_status >= 400 %}text-danger fw-semibold{% else %}text-muted{% endif %}">{{ c.http_status }}</span>
+                {% else %}
+                  <span class="text-muted" title="ответа не было — запрос не дошёл">—</span>
+                {% endif %}
+              </td>
               <td>
+                <div class="text-muted small">{{ c.app|default:"приложение не записано" }}</div>
                 <div>{{ c.task|default:c.caller|default:"—" }}</div>
                 {% if c.task and c.caller and c.caller != c.task.name %}
                   <div class="text-muted small">{{ c.caller }}</div>
@@ -197,6 +279,10 @@
 
   <p class="text-muted small mt-3 mb-0">
     Строка пишется на каждый вызов, включая успешный — иначе доля отказов не считается.
+    Приложение берётся из стека вызова — тем же значением, которое уходит в OpenRouter
+    заголовком X-Title, поэтому наша разбивка сходится с их Activity.
+    Колонка HTTP отделяет отказ провайдера (429 — упёрлись в лимит модели, 401, 5xx) от
+    обрыва тракта, у которого HTTP-кода нет вовсе: причина отказа — в колонке «Исход».
     Цену называет сам OpenRouter: она приходит в ответе на вызов, а по строкам без цены её
     добирает кнопка наверху — по id генерации, по одному запросу на строку.
     {% if stuck %}
