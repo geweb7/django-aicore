@@ -177,6 +177,45 @@
     </div>
   {% endif %}
 
+  {% if by_task %}
+    <div class="table-responsive bg-white border rounded mb-3">
+      <table class="table table-sm mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Задача <span class="fw-normal text-muted small">— разбор суммы {% if f.app %}приложения «{{ f.app }}»{% else %}выше{% endif %} за тот же период</span></th>
+            <th class="text-end" style="width:1%">Вызовов</th>
+            <th class="text-end" style="width:1%">Токенов</th>
+            <th class="text-end" style="width:1%">$</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in by_task %}
+            <tr {% if f.task == row.task_id|stringformat:"s" %}class="table-active"{% endif %}>
+              <td>
+                {% if row.task_id %}
+                  <a href="?{% if query_no_task %}{{ query_no_task }}&{% endif %}task={{ row.task_id }}">{{ row.task__name|default:row.task__key }}</a>
+                  <span class="text-muted small">{{ row.task__key }}</span>
+                {% else %}
+                  без задачи
+                  <span class="text-muted small">— устаревший call() или эмбеддинг, в реестр задач они не попадают</span>
+                {% endif %}
+                {% if not f.app %}<span class="text-muted small">· {{ row.app }}</span>{% endif %}
+              </td>
+              <td class="text-end">{{ row.calls }}</td>
+              <td class="text-end">{{ row.tokens }}</td>
+              <td class="text-end text-nowrap">
+                ${{ row.cost_total|floatformat:4 }}
+                {% if row.unpriced %}
+                  <span class="text-muted" title="строк без цены: {{ row.unpriced }} — в сумму они не вошли">+{{ row.unpriced }}?</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
   {% if page.object_list %}
     <div class="table-responsive bg-white border rounded">
       <table class="table table-sm table-hover align-middle mb-0 calls-table">

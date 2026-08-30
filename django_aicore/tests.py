@@ -6,12 +6,14 @@
 """
 
 from decimal import Decimal
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from . import core
 from .core import AIUnavailableError, resolve_app, resolve_task
 from .models import AICallLog, AIProvider, AITask
 
@@ -51,6 +53,42 @@ class ResolveAppTests(TestCase):
         provider = make_provider()
         row = run_as_app("myapp", _log_call, "chat", provider, "кто-то", {}, {})
         self.assertEqual(row.app, "myapp")
+
+
+class AppIsMandatoryTests(TestCase):
+    """Отказ при неопределимом приложении. Сам обход стека проверяется выше через
+    run_as_app; здесь подменяется его результат — построить стек, целиком состоящий из
+    пропускаемых пакетов, изнутри тестового прогона нельзя.
+    """
+
+    def test_call_is_refused_when_app_is_unknown(self):
+        with mock.patch.object(core, "calling_app", return_value=""):
+            with self.assertRaises(AIUnavailableError) as ctx:
+                resolve_app(None)
+        msg = str(ctx.exception)
+        self.assertIn("отклонён", msg)
+        # Glass box: видно, что слой смотрел, — иначе отказ неотличим от поломки слоя.
+        self.assertIn("Корневые пакеты в стеке", msg)
+
+    def test_task_key_prefix_is_the_second_support(self):
+        task = AITask.objects.create(key="myapp.step")
+        with mock.patch.object(core, "calling_app", return_value=""):
+            self.assertEqual(resolve_app(task), "myapp")
+
+    def test_key_without_prefix_is_not_an_app(self):
+        # «step» — не «приложение.сценарий»: выдать всю задачу за приложение значило бы
+        # завести в учёте приложение, которого нет.
+        task = AITask.objects.create(key="step")
+        with mock.patch.object(core, "calling_app", return_value=""):
+            with self.assertRaises(AIUnavailableError):
+                resolve_app(task)
+
+    def test_embeddings_return_the_refusal_instead_of_raising(self):
+        make_provider(role=AIProvider.ROLE_EMBED)
+        with mock.patch.object(core, "calling_app", return_value=""):
+            vectors, error = core.get_embeddings_batch(["текст"])
+        self.assertEqual(vectors, [None])
+        self.assertIn("отклонён", error)
 
 
 class ResolveTaskTests(TestCase):
@@ -117,6 +155,18 @@ class CallsViewTests(TestCase):
         self.assertEqual(sum(row["cost_total"] for row in by_app.values()),
                          r.context["totals"]["cost_total"])
         self.assertEqual(by_app["promo"]["tokens"], 150)
+
+    def test_task_summary_drills_into_the_chosen_app(self):
+        r = self.client.get(self.url())
+        keys = {row["task__key"] for row in r.context["by_task"]}
+        # Строки без задачи — отдельным разрезом, а не растворены в чужих суммах.
+        self.assertEqual(keys, {"promo.agent", None})
+
+        r = self.client.get(self.url(app="promo"))
+        self.assertEqual([row["task__key"] for row in r.context["by_task"]], ["promo.agent"])
+        self.assertEqual(r.context["by_task"][0]["tokens"], 150)
+        self.assertEqual(sum(row["cost_total"] for row in r.context["by_task"]),
+                         r.context["totals"]["cost_total"])
 
     def test_app_filter(self):
         r = self.client.get(self.url(app="promo"))

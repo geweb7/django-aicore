@@ -273,6 +273,29 @@ def provider_delete(request, pk):
 APP_NONE = "-"
 
 
+def _spend(qs, *group_by):
+    """Расход по срезу: вызовов, токенов, $ — одной формулой на все сводки.
+
+    Разрезов два (приложения и задачи), а считаются они одинаково; разведи их по двум
+    местам — и однажды в одной колонке окажется цена без reasoning-токенов, а в
+    соседней с ними.
+    """
+    return list(
+        qs.values(*group_by)
+          .annotate(calls=Count("id"),
+                    priced=Count("cost"),
+                    # Строки без цены названы отдельным числом, а не выведены вычитанием
+                    # в шаблоне: сумма по срезу с ними не сходится, и молчать об этом
+                    # нельзя — «$0.4» при десяти неоценённых строках вводит в заблуждение.
+                    unpriced=Count("id") - Count("cost"),
+                    cost_total=Coalesce(Sum("cost"), Value(Decimal("0"),
+                                        output_field=DecimalField(max_digits=12, decimal_places=8))),
+                    tokens=Coalesce(Sum("prompt_tokens"), Value(0))
+                           + Coalesce(Sum("completion_tokens"), Value(0)))
+          .order_by("-cost_total", "-calls")
+    )
+
+
 def _calls_period(f):
     """Границы периода из GET → (qs-фильтр, сообщения об ошибках разбора).
 
@@ -326,23 +349,14 @@ def calls(request):
     # Сводка по приложениям считается ДО фильтра по приложению — иначе таблица «чьи это
     # вызовы» показывала бы одну строку, ту самую, которую и так выбрали. Все остальные
     # фильтры (период, исход, модель) в неё входят: сравнивать надо в одних условиях.
-    by_app = list(
-        qs.values("app")
-          .annotate(calls=Count("id"),
-                    priced=Count("cost"),
-                    # Строки без цены названы отдельным числом, а не выведены вычитанием
-                    # в шаблоне: сумма по приложению с ними не сходится, и молчать об этом
-                    # нельзя — «$0.4» при десяти неоценённых строках вводит в заблуждение.
-                    unpriced=Count("id") - Count("cost"),
-                    cost_total=Coalesce(Sum("cost"), Value(Decimal("0"),
-                                        output_field=DecimalField(max_digits=12, decimal_places=8))),
-                    tokens=Coalesce(Sum("prompt_tokens"), Value(0))
-                           + Coalesce(Sum("completion_tokens"), Value(0)))
-          .order_by("-cost_total", "-calls")
-    )
+    by_app = _spend(qs, "app")
 
     if f["app"]:
         qs = qs.filter(app="" if f["app"] == APP_NONE else f["app"])
+
+    # По задачам — уже внутри выбранного приложения: это разбор той суммы, которую видно
+    # выше, а не второй независимый счёт.
+    by_task = _spend(qs, "app", "task_id", "task__key", "task__name")
 
     # Сумма — по отфильтрованному, а не по странице: цена вопроса «сколько стоил этот
     # сценарий» и есть смысл фильтра. priced отдельно, потому что строки без цены в сумму
@@ -356,9 +370,11 @@ def calls(request):
     params = request.GET.copy()
     params.pop("page", None)
 
-    # Ссылки строк сводки: те же условия, но с другим приложением — свой app не тащим.
+    # Ссылки строк сводок: те же условия, но со своим разрезом — его из ссылки убираем.
     app_params = params.copy()
     app_params.pop("app", None)
+    task_params = params.copy()
+    task_params.pop("task", None)
 
     # Быстрые периоды — обычные ссылки с датами, сохраняющие прочие фильтры.
     # timezone.now().date(), а не localdate(): пакет обязан работать и при USE_TZ=False,
@@ -383,11 +399,13 @@ def calls(request):
         "f": f,
         "totals": totals,
         "by_app": by_app,
+        "by_task": by_task,
         "app_none": APP_NONE,
         "quick": quick,
         "period_reset": period_params.urlencode(),
         "query": params.urlencode(),
         "query_no_app": app_params.urlencode(),
+        "query_no_task": task_params.urlencode(),
         "refreshable": refreshable,
         # Цену этих строк не добрать ничем: id генерации у них нет (записаны до того, как
         # слой начал его сохранять) либо провайдер уже не openrouter-овский.

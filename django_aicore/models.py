@@ -292,7 +292,8 @@ class AICallLog(models.Model):
     # Приложение-инициатор: тот же факт, что уходит в X-Title (см. resolve_app). Пишется
     # полем, а не выводится из префикса task.key: у легаси-call() и у эмбеддингов задачи
     # нет вовсе, а удаление задачи (SET_NULL выше) стёрло бы приложение и у остальных.
-    # Пусто — вызов записан до появления поля либо пришёл не из приложения.
+    # Пусто бывает только у строк старше самого поля: вызов, приложение которого слой
+    # определить не смог, не делается вовсе (resolve_app).
     app = models.CharField(max_length=50, blank=True, db_index=True, verbose_name="Приложение")
 
     provider = models.ForeignKey(AIProvider, null=True, blank=True, on_delete=models.SET_NULL,
