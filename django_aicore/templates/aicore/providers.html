@@ -5,9 +5,11 @@
 <style>
   .prov-table th a { color: inherit; text-decoration: none; white-space: nowrap; }
   .prov-table th a:hover { text-decoration: underline; }
-  .prov-table td { vertical-align: middle; }
+  .prov-table td { vertical-align: top; }
   .prov-off td:not(.prov-actions) { opacity: .5; }
   .prov-url { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prov-price { max-width: 300px; word-break: break-word; }
+  .prov-cand-btn { font-size: inherit; line-height: inherit; vertical-align: baseline; }
 </style>
 {% endblock %}
 
@@ -61,7 +63,7 @@
                 Модель{% if sort == 'model' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
               </a>
             </th>
-            <th style="width:1%" title="Цена из OpenRouter /api/v1/models ($ за 1M токенов), кэш 6ч">Цена&nbsp;OpenRouter</th>
+            <th title="Цена из OpenRouter /api/v1/models ($ за 1M токенов), кэш 6ч">Цена&nbsp;OpenRouter</th>
             <th style="width:1%">
               <a href="?sort=tags&dir={% if sort == 'tags' %}{{ next_dir }}{% else %}asc{% endif %}">
                 Теги{% if sort == 'tags' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
@@ -97,7 +99,7 @@
                   <div class="text-muted small">{{ p.description }}</div>
                 {% endif %}
               </td>
-              <td class="small" style="min-width:210px">
+              <td class="small prov-price">
                 {% if p.dialect == "openrouter" %}
                   {% if p.or_price %}
                     <div class="text-nowrap"><span title="входные токены">{{ p.or_price }}/M&nbsp;in</span> · <span title="выходные токены">{{ p.or_price_out }}/M&nbsp;out</span></div>
@@ -110,9 +112,9 @@
                       <div class="text-muted" title="У модели нет benchmarks.artificial_analysis.intelligence_index — класс не определён, в сравнение не берём">интеллект — нет оценки</div>
                     {% endif %}
                     {% if p.or_cheaper %}
-                      <div class="mt-1">дешевле в классе (топ-5 по интеллекту):
+                      <div class="mt-1">дешевле в классе (топ-5 по 🧠):
                         {% for c in p.or_cheaper %}
-                          <div class="text-nowrap">— {{ c.id }} <span class="text-muted">🧠{{ c.intelligence }} {{ c.prompt_str }}/M·{{ c.completion_str }}/M −{{ c.saving|floatformat:0 }}%</span></div>
+                          <div>— <form method="post" action="{% url 'aicore:provider_switch_model' p.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="new_model" value="{{ c.id }}"><button type="submit" class="btn btn-link btn-sm p-0 prov-cand-btn font-monospace text-decoration-underline" title="Заменить {{ p.model }} → {{ c.id }}">{{ c.id }}</button></form> <span class="text-muted">🧠{{ c.intelligence }} {{ c.prompt_str }}/M·{{ c.completion_str }}/M −{{ c.saving|floatformat:0 }}%</span></div>
                         {% endfor %}
                       </div>
                     {% elif p.or_intelligence is not None %}
@@ -165,7 +167,7 @@
     </div>
 
     <div class="alert alert-light border small mt-2 mb-0">
-      <b>Где цена:</b> колонка «Цена OpenRouter» — $ за 1M (in/out) из <code>openrouter.ai/api/v1/models</code>, кэш 6ч. Кнопка «Обновить каталог» форсит обновление цен и интеллекта. Интеллект — <code>benchmarks.artificial_analysis.intelligence_index</code> (160 из 420 моделей имеют балл, остальные — «нет оценки» и в сравнение не идут). Класс — бакет 10 пунктов (30–40 и т.п., прозрачно в строке). «дешевле в классе» — до 3 моделей того же класса с меньшей avg ценой.
+      <b>Где цена:</b> колонка «Цена OpenRouter» — $ за 1M (in/out) из <code>openrouter.ai/api/v1/models</code>, кэш 6ч. Кнопка «Обновить каталог» форсит обновление. Интеллект — <code>benchmarks.artificial_analysis.intelligence_index</code> (160/420, остальные — «нет оценки»). Класс — бакет 10 (30–40 и т.п.). «дешевле в классе» — до 5 дешевле того же класса, отсорт. по 🧠, клик по имени — замена модели (POST, без JS). Bootstrap 5 + <code>table-responsive</code> — таблица скроллится, а не ломает вёрстку.
     </div>
   {% else %}
     <p class="text-muted">Провайдеров нет. Добавьте провайдера (например, OpenRouter или Anthropic).</p>

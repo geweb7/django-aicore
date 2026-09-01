@@ -8,6 +8,7 @@ urlpatterns = [
     path("task-poll/<str:task_id>/", views.task_poll, name="task_poll"),
     path("providers/", views.providers, name="providers"),
     path("providers/refresh-pricing/", views.providers_pricing_refresh, name="providers_refresh_pricing"),
+    path("providers/<int:pk>/switch-model/", views.provider_switch_model, name="provider_switch_model"),
     path("providers/add/", views.provider_add, name="provider_add"),
     path("providers/<int:pk>/edit/", views.provider_edit, name="provider_edit"),
     path("providers/<int:pk>/copy/", views.provider_copy, name="provider_copy"),

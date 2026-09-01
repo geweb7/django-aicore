@@ -127,6 +127,35 @@ def task_poll(request, task_id):
 
 
 @login_required
+def provider_switch_model(request, pk):
+    provider = get_object_or_404(AIProvider, pk=pk)
+    if request.method != "POST":
+        return redirect("aicore:providers")
+    new_model = (request.POST.get("new_model") or "").strip()
+    if not new_model:
+        messages.error(request, "Новая модель не указана.")
+        return redirect("aicore:providers")
+    from .pricing import _resolve_entry, get_openrouter_catalog
+
+    if provider.dialect != AIProvider.DIALECT_OPENROUTER:
+        messages.error(request, f"Провайдер {provider.model} не openrouter — смена модели через каталог недоступна.")
+        return redirect("aicore:providers")
+    catalog = get_openrouter_catalog()
+    if not catalog:
+        messages.error(request, "Каталог OpenRouter пуст — нажми «Обновить каталог».")
+        return redirect("aicore:providers")
+    entry = _resolve_entry(new_model, catalog)
+    if not entry:
+        messages.error(request, f"Модель «{new_model}» нет в каталоге OpenRouter — проверь id (author/slug).")
+        return redirect("aicore:providers")
+    old = provider.model
+    provider.model = new_model
+    provider.save(update_fields=["model"])
+    messages.success(request, f"Провайдер {provider.get_role_display()} «{old}» → «{new_model}» ({entry['prompt']} in · {entry['completion']} out).")
+    return redirect("aicore:providers")
+
+
+@login_required
 def providers_pricing_refresh(request):
     if request.method != "POST":
         return redirect("aicore:providers")
