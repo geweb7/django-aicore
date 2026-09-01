@@ -61,6 +61,7 @@
                 Модель{% if sort == 'model' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
               </a>
             </th>
+            <th style="width:1%" title="Цена из OpenRouter /api/v1/models ($ за 1M токенов), кэш 6ч">Цена&nbsp;OpenRouter</th>
             <th style="width:1%">
               <a href="?sort=tags&dir={% if sort == 'tags' %}{{ next_dir }}{% else %}asc{% endif %}">
                 Теги{% if sort == 'tags' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
@@ -92,15 +93,19 @@
                     </span>
                   {% endfor %}
                 </div>
-                {% if p.dialect == "openrouter" %}
-                  {% if p.or_price %}
-                    <div class="small text-muted">OpenRouter: {{ p.or_price }}/M in · {{ p.or_price_out }}/M out</div>
-                  {% else %}
-                    <div class="small text-muted">OpenRouter: нет данных</div>
-                  {% endif %}
-                {% endif %}
                 {% if p.description %}
                   <div class="text-muted small">{{ p.description }}</div>
+                {% endif %}
+              </td>
+              <td class="text-nowrap small" style="min-width:140px">
+                {% if p.dialect == "openrouter" %}
+                  {% if p.or_price %}
+                    <span title="входные токены">{{ p.or_price }}/M&nbsp;in</span> · <span title="выходные токены">{{ p.or_price_out }}/M&nbsp;out</span>
+                  {% else %}
+                    <span class="text-muted">нет данных</span> <span class="text-muted" title="Модель не найдена в /api/v1/models или кэш пуст — нажми «Обновить цены»">ⓘ</span>
+                  {% endif %}
+                {% else %}
+                  <span class="text-muted">—</span>
                 {% endif %}
               </td>
               <td>
@@ -137,14 +142,10 @@
       </table>
     </div>
 
-    <p class="text-muted small mt-2 mb-0">
-      По умолчанию список сгруппирован по роли, а внутри роли отсортирован по приоритету —
-      в этом порядке <code>get_provider</code> и выбирает провайдера: побеждает меньший
-      приоритет среди активных, значения уникальны. Бейдж <span class="badge bg-primary"><i class="bi bi-star-fill"></i> по умолчанию</span>
-      — кого вернёт вызов по этой роли без тега; он учитывает и перехват тегом с именем роли,
-      и фолбэк «Гений / Умная (альт.) / Дешёвая → Умная».
-      Цена OpenRouter — из <code>/api/v1/models</code> (кэш 6ч, кнопка «Обновить цены»), для остальных диалектов не показывается.
-    </p>
+    <div class="alert alert-light border small mt-2 mb-0">
+      <b>Где цена:</b> колонка «Цена OpenRouter» — $ за 1M токенов (in/out) прямо из <code>openrouter.ai/api/v1/models</code>, кэш 6ч. Кнопка «Обновить цены» в шапке форсит обновление. Для <code>dialect != openrouter</code> — прочерк. «нет данных» — модель не найдена в каталоге OpenRouter.
+      <br>Сортировка и выбор провайдера — по роли → приоритету, как раньше. Бейдж <span class="badge bg-primary"><i class="bi bi-star-fill"></i> по умолчанию</span> — кого вернёт вызов по этой роли без тега.
+    </div>
   {% else %}
     <p class="text-muted">Провайдеров нет. Добавьте провайдера (например, OpenRouter или Anthropic).</p>
   {% endif %}
