@@ -105,10 +105,27 @@ def pricing_for_model(model_id, pricing_map=None):
     return pricing_map.get(model_id)
 
 
+def _resolve_entry(model_id, catalog):
+    """Точный id или суффикс после '/' — glass box для bare имён вроде 'claude-fable-5'."""
+    if model_id in catalog:
+        return catalog[model_id]
+    # bare name без префикса: ищем id, оканчивающийся на '/' + model_id
+    if "/" not in model_id:
+        for mid, entry in catalog.items():
+            if mid.endswith("/" + model_id):
+                return entry
+    # префикс '~' у автораутинга OpenRouter: '~anthropic/...' — пробуем без тильды
+    if model_id.startswith("~"):
+        cand = model_id[1:]
+        if cand in catalog:
+            return catalog[cand]
+    return None
+
+
 def catalog_for_model(model_id, catalog=None):
     if catalog is None:
         catalog = get_openrouter_catalog()
-    return catalog.get(model_id)
+    return _resolve_entry(model_id, catalog)
 
 
 def format_price(per_token):
@@ -145,7 +162,7 @@ def cheaper_in_tier(model_id, catalog=None, limit=3):
     """Модели дешевле текущей в том же тире (окно ±0 бакета), отсорт. по avg цене."""
     if catalog is None:
         catalog = get_openrouter_catalog()
-    cur = catalog.get(model_id)
+    cur = _resolve_entry(model_id, catalog)
     if not cur or cur.get("intelligence") is None:
         return []
     tier = tier_of(cur["intelligence"])
@@ -154,11 +171,14 @@ def cheaper_in_tier(model_id, catalog=None, limit=3):
     cur_avg = _avg_price(cur)
     candidates = []
     for mid, entry in catalog.items():
-        if mid == model_id:
-            continue
         if entry.get("intelligence") is None:
             continue
         if tier_of(entry["intelligence"]) != tier:
+            continue
+        # :free — бесплатный тариф с лимитами 20 req/min, в прод не годится; 0/0 тоже мусор для сравнения
+        if mid.endswith(":free") or (entry["prompt"] == 0 and entry["completion"] == 0):
+            continue
+        if mid == model_id or mid.endswith("/" + model_id):
             continue
         avg = _avg_price(entry)
         if avg >= cur_avg:

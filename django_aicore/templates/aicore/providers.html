@@ -101,6 +101,9 @@
                 {% if p.dialect == "openrouter" %}
                   {% if p.or_price %}
                     <div class="text-nowrap"><span title="входные токены">{{ p.or_price }}/M&nbsp;in</span> · <span title="выходные токены">{{ p.or_price_out }}/M&nbsp;out</span></div>
+                    {% if p.or_resolved_id and p.or_resolved_id != p.model %}
+                      <div class="text-muted small">каталог: <span class="font-monospace">{{ p.or_resolved_id }}</span></div>
+                    {% endif %}
                     {% if p.or_intelligence is not None %}
                       <div class="text-muted" title="Artificial Analysis intelligence_index из benchmarks.artificial_analysis (openrouter.ai/api/v1/models)">интеллект {{ p.or_intelligence }} · класс {{ p.or_tier_label }}</div>
                     {% else %}
@@ -116,7 +119,12 @@
                       <div class="text-muted mt-1">дешевле в классе нет</div>
                     {% endif %}
                   {% else %}
-                    <span class="text-muted">нет данных</span> <span class="text-muted" title="Модель не найдена в /api/v1/models или кэш пуст — нажми «Обновить цены»">ⓘ</span>
+                    {% if p.or_not_found %}
+                      <div class="text-danger small">нет в каталоге <span class="font-monospace">{{ p.model }}</span></div>
+                      <div class="text-muted small" title="Проверь id: формат author/slug как в openrouter.ai/models, напр. anthropic/claude-fable-5, а не claude-fable-5">проверь id (author/slug) · кэш — «Обновить каталог»</div>
+                    {% else %}
+                      <span class="text-muted">нет данных</span> <span class="text-muted" title="Кэш пуст — нажми «Обновить каталог»">ⓘ</span>
+                    {% endif %}
                   {% endif %}
                 {% else %}
                   <span class="text-muted">—</span>

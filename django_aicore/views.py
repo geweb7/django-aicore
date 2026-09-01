@@ -185,10 +185,16 @@ def providers(request):
     catalog = get_openrouter_catalog()
     pricing_error = None
     if not catalog:
-        pricing_error = "Каталог OpenRouter пока недоступен — покажем «нет данных»."
+        # fail fast: каталог пустой — это ошибка транспорта, а не «пока пусто»
+        raise RuntimeError(
+            "Каталог OpenRouter пуст — GET openrouter.ai/api/v1/models не вернул данных "
+            "(прокси/сеть). Кнопка «Обновить каталог» форсит рефетч, лог — pricing.py."
+        )
+    from .pricing import _resolve_entry
+
     for p in items:
         if p.dialect == AIProvider.DIALECT_OPENROUTER:
-            raw = catalog.get(p.model)
+            raw = _resolve_entry(p.model, catalog)
             if raw:
                 p.or_price = format_price(raw["prompt"])
                 p.or_price_out = format_price(raw["completion"])
@@ -196,9 +202,12 @@ def providers(request):
                 p.or_intelligence = raw.get("intelligence")
                 p.or_tier = tier_of(p.or_intelligence)
                 p.or_tier_label = tier_label(p.or_tier)
-                # Прозрачность: дешевле в том же классе (бакет 10) — без ручной полки.
+                # Прозрачность: дешевле в том же классе (бакет 10) — без ручной полки, :free исключены.
                 p.or_cheaper = cheaper_in_tier(p.model, catalog) if p.or_intelligence is not None else []
+                p.or_resolved_id = next((mid for mid, e in catalog.items() if e is raw), p.model)
+                p.or_not_found = False
             else:
+                # fail fast: модель не в каталоге — видно сразу, с подсказкой про формат id
                 p.or_price = None
                 p.or_price_out = None
                 p.or_price_raw = None
@@ -206,6 +215,8 @@ def providers(request):
                 p.or_tier = None
                 p.or_tier_label = None
                 p.or_cheaper = []
+                p.or_not_found = True
+                p.or_resolved_id = None
         else:
             p.or_price = None
             p.or_price_out = None
