@@ -130,19 +130,18 @@ def task_poll(request, task_id):
 def providers_pricing_refresh(request):
     if request.method != "POST":
         return redirect("aicore:providers")
-    from .pricing import CACHE_TTL, get_openrouter_pricing
+    from .pricing import get_openrouter_catalog
 
     try:
-        get_openrouter_pricing(force_refresh=True)
-        messages.success(request, "Цены OpenRouter обновлены.")
+        get_openrouter_catalog(force_refresh=True)
+        messages.success(request, "Каталог OpenRouter обновлён (цены + интеллект).")
     except Exception as e:
-        messages.error(request, f"Не удалось обновить цены OpenRouter: {e}")
-        # Кэш остаётся прежним — страница покажет старые данные, а не пустоту.
+        messages.error(request, f"Не удалось обновить каталог OpenRouter: {e}")
         from django.core.cache import cache
-        from .pricing import CACHE_KEY
+        from .pricing import CATALOG_KEY
 
-        if cache.get(CACHE_KEY) is None:
-            messages.info(request, "Кэша цен пока нет — на странице будет «нет данных» до следующего успешного обновления.")
+        if cache.get(CATALOG_KEY) is None:
+            messages.info(request, "Кэша каталога пока нет — на странице будет «нет данных» до следующего успешного обновления.")
     return redirect("aicore:providers")
 
 
@@ -181,36 +180,47 @@ def providers(request):
     for p in items:
         p.default_roles = default_for.get(p.pk, [])
 
-    from .pricing import get_openrouter_pricing
+    from .pricing import cheaper_in_tier, format_price, get_openrouter_catalog, tier_label, tier_of
 
-    pricing_map = get_openrouter_pricing()
+    catalog = get_openrouter_catalog()
     pricing_error = None
-    if not pricing_map:
-        pricing_error = "Цены OpenRouter пока недоступны — покажем «нет данных»."
+    if not catalog:
+        pricing_error = "Каталог OpenRouter пока недоступен — покажем «нет данных»."
     for p in items:
         if p.dialect == AIProvider.DIALECT_OPENROUTER:
-            raw = pricing_map.get(p.model)
+            raw = catalog.get(p.model)
             if raw:
-                from .pricing import format_price
-
                 p.or_price = format_price(raw["prompt"])
                 p.or_price_out = format_price(raw["completion"])
                 p.or_price_raw = raw
+                p.or_intelligence = raw.get("intelligence")
+                p.or_tier = tier_of(p.or_intelligence)
+                p.or_tier_label = tier_label(p.or_tier)
+                # Прозрачность: дешевле в том же классе (бакет 10) — без ручной полки.
+                p.or_cheaper = cheaper_in_tier(p.model, catalog) if p.or_intelligence is not None else []
             else:
                 p.or_price = None
                 p.or_price_out = None
                 p.or_price_raw = None
+                p.or_intelligence = None
+                p.or_tier = None
+                p.or_tier_label = None
+                p.or_cheaper = []
         else:
             p.or_price = None
             p.or_price_out = None
             p.or_price_raw = None
+            p.or_intelligence = None
+            p.or_tier = None
+            p.or_tier_label = None
+            p.or_cheaper = []
 
     return render(request, "aicore/providers.html", {
         "providers": items,
         "sort": sort,
         "dir": "desc" if desc else "asc",
         "next_dir": "asc" if desc else "desc",
-        "or_pricing": pricing_map,
+        "or_catalog": catalog,
         "or_pricing_error": pricing_error,
     })
 

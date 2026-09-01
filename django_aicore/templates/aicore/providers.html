@@ -19,8 +19,8 @@
     <div class="d-flex gap-2">
       <form method="post" action="{% url 'aicore:providers_refresh_pricing' %}" class="d-inline">
         {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Обновить цены OpenRouter (кэш 6ч)">
-          <i class="bi bi-arrow-clockwise"></i> Обновить цены
+        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Обновить каталог OpenRouter — цены + интеллект (кэш 6ч)">
+          <i class="bi bi-arrow-clockwise"></i> Обновить каталог
         </button>
       </form>
       <a href="{% url 'aicore:provider_add' %}" class="btn btn-sm btn-dark">
@@ -97,10 +97,24 @@
                   <div class="text-muted small">{{ p.description }}</div>
                 {% endif %}
               </td>
-              <td class="text-nowrap small" style="min-width:140px">
+              <td class="small" style="min-width:210px">
                 {% if p.dialect == "openrouter" %}
                   {% if p.or_price %}
-                    <span title="входные токены">{{ p.or_price }}/M&nbsp;in</span> · <span title="выходные токены">{{ p.or_price_out }}/M&nbsp;out</span>
+                    <div class="text-nowrap"><span title="входные токены">{{ p.or_price }}/M&nbsp;in</span> · <span title="выходные токены">{{ p.or_price_out }}/M&nbsp;out</span></div>
+                    {% if p.or_intelligence is not None %}
+                      <div class="text-muted" title="Artificial Analysis intelligence_index из benchmarks.artificial_analysis (openrouter.ai/api/v1/models)">интеллект {{ p.or_intelligence }} · класс {{ p.or_tier_label }}</div>
+                    {% else %}
+                      <div class="text-muted" title="У модели нет benchmarks.artificial_analysis.intelligence_index — класс не определён, в сравнение не берём">интеллект — нет оценки</div>
+                    {% endif %}
+                    {% if p.or_cheaper %}
+                      <div class="mt-1">дешевле в классе:
+                        {% for c in p.or_cheaper %}
+                          <div class="text-nowrap">— {{ c.id }} <span class="text-muted">{{ c.prompt_str }}/M in · {{ c.completion_str }}/M out · −{{ c.saving|floatformat:0 }}%</span></div>
+                        {% endfor %}
+                      </div>
+                    {% elif p.or_intelligence is not None %}
+                      <div class="text-muted mt-1">дешевле в классе нет</div>
+                    {% endif %}
                   {% else %}
                     <span class="text-muted">нет данных</span> <span class="text-muted" title="Модель не найдена в /api/v1/models или кэш пуст — нажми «Обновить цены»">ⓘ</span>
                   {% endif %}
@@ -143,8 +157,7 @@
     </div>
 
     <div class="alert alert-light border small mt-2 mb-0">
-      <b>Где цена:</b> колонка «Цена OpenRouter» — $ за 1M токенов (in/out) прямо из <code>openrouter.ai/api/v1/models</code>, кэш 6ч. Кнопка «Обновить цены» в шапке форсит обновление. Для <code>dialect != openrouter</code> — прочерк. «нет данных» — модель не найдена в каталоге OpenRouter.
-      <br>Сортировка и выбор провайдера — по роли → приоритету, как раньше. Бейдж <span class="badge bg-primary"><i class="bi bi-star-fill"></i> по умолчанию</span> — кого вернёт вызов по этой роли без тега.
+      <b>Где цена:</b> колонка «Цена OpenRouter» — $ за 1M (in/out) из <code>openrouter.ai/api/v1/models</code>, кэш 6ч. Кнопка «Обновить каталог» форсит обновление цен и интеллекта. Интеллект — <code>benchmarks.artificial_analysis.intelligence_index</code> (160 из 420 моделей имеют балл, остальные — «нет оценки» и в сравнение не идут). Класс — бакет 10 пунктов (30–40 и т.п., прозрачно в строке). «дешевле в классе» — до 3 моделей того же класса с меньшей avg ценой.
     </div>
   {% else %}
     <p class="text-muted">Провайдеров нет. Добавьте провайдера (например, OpenRouter или Anthropic).</p>
