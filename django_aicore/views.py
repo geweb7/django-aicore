@@ -159,11 +159,25 @@ def provider_switch_model(request, pk):
 def providers_pricing_refresh(request):
     if request.method != "POST":
         return redirect("aicore:providers")
-    from .pricing import get_openrouter_catalog
+    from .pricing import _avg_price, _resolve_entry, get_openrouter_catalog
 
+    old = get_openrouter_catalog()
     try:
-        get_openrouter_catalog(force_refresh=True)
+        new = get_openrouter_catalog(force_refresh=True)
         messages.success(request, "Каталог OpenRouter обновлён (цены + интеллект).")
+        # fail fast для цены: ловим подорожание используемых моделей
+        hikes = []
+        for p in AIProvider.objects.filter(dialect=AIProvider.DIALECT_OPENROUTER).exclude(model=""):
+            o = _resolve_entry(p.model, old) if old else None
+            n = _resolve_entry(p.model, new)
+            if not o or not n:
+                continue
+            old_avg, new_avg = _avg_price(o), _avg_price(n)
+            if old_avg and new_avg > old_avg * 1.05:  # +5%
+                pct = (new_avg / old_avg * 100 - 100)
+                hikes.append(f"{p.model}: {o['prompt']}/{o['completion']} → {n['prompt']}/{n['completion']} (+{pct:.0f}%)")
+        for h in hikes:
+            messages.warning(request, f"Цена поднялась: {h}")
     except Exception as e:
         messages.error(request, f"Не удалось обновить каталог OpenRouter: {e}")
         from django.core.cache import cache
@@ -229,8 +243,8 @@ def providers(request):
                 p.or_price_out = format_price(raw["completion"])
                 p.or_price_raw = raw
                 p.or_intelligence = raw.get("intelligence")
-                p.or_tier = tier_of(p.or_intelligence)
-                p.or_tier_label = tier_label(p.or_tier)
+                # класс — окно ±5 вокруг интеллекта, а не бакет 10
+                p.or_tier_label = f"{p.or_intelligence-5:.1f}–{p.or_intelligence+5:.1f}" if p.or_intelligence is not None else None
                 p.or_candidates = candidates_in_tier(p.model, catalog) if p.or_intelligence is not None else []
                 p.or_cheaper = [c for c in p.or_candidates if c["saving"] < 0]
                 p.or_resolved_id = next((mid for mid, e in catalog.items() if e is raw), p.model)

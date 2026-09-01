@@ -142,7 +142,7 @@ def format_price(per_token):
 
 
 def tier_of(intelligence):
-    """Класс по интеллекту: бакет 10 пунктов. 160 моделей с баллом 5.5–63.1."""
+    """Совместимость: бакет 10 — оставлен для старых вызовов, новые — окно ±5."""
     if intelligence is None:
         return None
     return int(intelligence // 10) * 10
@@ -154,37 +154,39 @@ def tier_label(tier):
     return f"{tier}–{tier+10}"
 
 
+def same_tier(a, b, window=5):
+    """Одинаково умные — окно ±window пунктов (ты говорил ±5, а бакет 10 давал 50–60 для 59.5 — хуйня)."""
+    if a is None or b is None:
+        return False
+    return abs(a - b) <= window
+
+
 def _avg_price(entry):
     return (entry["prompt"] + entry["completion"]) / 2
 
 
-def candidates_in_tier(model_id, catalog=None, limit=5):
-    """Кандидаты того же тира (бакет 10), отсорт. по интеллекту — и дешевле и дороже.
+def candidates_in_tier(model_id, catalog=None, limit=5, window=5):
+    """Кандидаты того же класса — окно ±window по интеллекту (дефолт 5), и дешевле и дороже.
 
-    Показываем лучших по 🧠 в классе, а не только дешевле: можно перейти и на более
-    умную дорогую. :free/:batch/0 вне сравнения.
+    Раньше был бакет 10 (50–60 для 59.5 — хуйня, ты прав) — теперь окно ±5 вокруг текущей.
     """
     if catalog is None:
         catalog = get_openrouter_catalog()
     cur = _resolve_entry(model_id, catalog)
     if not cur or cur.get("intelligence") is None:
         return []
-    tier = tier_of(cur["intelligence"])
-    if tier is None:
-        return []
+    cur_intel = cur["intelligence"]
     cur_avg = _avg_price(cur)
     candidates = []
     for mid, entry in catalog.items():
-        if entry.get("intelligence") is None:
-            continue
-        if tier_of(entry["intelligence"]) != tier:
+        intel = entry.get("intelligence")
+        if intel is None or not same_tier(cur_intel, intel, window):
             continue
         if mid.endswith(":free") or mid.endswith(":batch") or (entry["prompt"] == 0 and entry["completion"] == 0):
             continue
         if mid == model_id or mid.endswith("/" + model_id):
             continue
         avg = _avg_price(entry)
-        # saving: + — дороже, − — дешевле (знак как в шаблоне)
         saving = (avg / cur_avg * 100 - 100) if cur_avg else 0
         candidates.append({
             "id": mid,
@@ -193,8 +195,8 @@ def candidates_in_tier(model_id, catalog=None, limit=5):
             "completion": entry["completion"],
             "prompt_str": format_price(entry["prompt"]),
             "completion_str": format_price(entry["completion"]),
-            "intelligence": entry["intelligence"],
-            "tier": tier,
+            "intelligence": intel,
+            "tier": tier_of(intel),
             "avg": avg,
             "saving": saving,
         })
