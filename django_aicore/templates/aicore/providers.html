@@ -16,9 +16,17 @@
 
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-cpu me-2 text-muted"></i>AI провайдеры</h4>
-    <a href="{% url 'aicore:provider_add' %}" class="btn btn-sm btn-dark">
-      <i class="bi bi-plus"></i> Добавить
-    </a>
+    <div class="d-flex gap-2">
+      <form method="post" action="{% url 'aicore:providers_refresh_pricing' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Обновить цены OpenRouter (кэш 6ч)">
+          <i class="bi bi-arrow-clockwise"></i> Обновить цены
+        </button>
+      </form>
+      <a href="{% url 'aicore:provider_add' %}" class="btn btn-sm btn-dark">
+        <i class="bi bi-plus"></i> Добавить
+      </a>
+    </div>
   </div>
 
   {% if providers %}
@@ -84,6 +92,13 @@
                     </span>
                   {% endfor %}
                 </div>
+                {% if p.dialect == "openrouter" %}
+                  {% if p.or_price %}
+                    <div class="small text-muted">OpenRouter: {{ p.or_price }}/M in · {{ p.or_price_out }}/M out</div>
+                  {% else %}
+                    <div class="small text-muted">OpenRouter: нет данных</div>
+                  {% endif %}
+                {% endif %}
                 {% if p.description %}
                   <div class="text-muted small">{{ p.description }}</div>
                 {% endif %}
@@ -128,6 +143,7 @@
       приоритет среди активных, значения уникальны. Бейдж <span class="badge bg-primary"><i class="bi bi-star-fill"></i> по умолчанию</span>
       — кого вернёт вызов по этой роли без тега; он учитывает и перехват тегом с именем роли,
       и фолбэк «Гений / Умная (альт.) / Дешёвая → Умная».
+      Цена OpenRouter — из <code>/api/v1/models</code> (кэш 6ч, кнопка «Обновить цены»), для остальных диалектов не показывается.
     </p>
   {% else %}
     <p class="text-muted">Провайдеров нет. Добавьте провайдера (например, OpenRouter или Anthropic).</p>

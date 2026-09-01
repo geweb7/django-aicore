@@ -127,6 +127,26 @@ def task_poll(request, task_id):
 
 
 @login_required
+def providers_pricing_refresh(request):
+    if request.method != "POST":
+        return redirect("aicore:providers")
+    from .pricing import CACHE_TTL, get_openrouter_pricing
+
+    try:
+        get_openrouter_pricing(force_refresh=True)
+        messages.success(request, "Цены OpenRouter обновлены.")
+    except Exception as e:
+        messages.error(request, f"Не удалось обновить цены OpenRouter: {e}")
+        # Кэш остаётся прежним — страница покажет старые данные, а не пустоту.
+        from django.core.cache import cache
+        from .pricing import CACHE_KEY
+
+        if cache.get(CACHE_KEY) is None:
+            messages.info(request, "Кэша цен пока нет — на странице будет «нет данных» до следующего успешного обновления.")
+    return redirect("aicore:providers")
+
+
+@login_required
 def providers(request):
     # По умолчанию группируем по роли: роль — то, чем провайдер отличается от соседа
     # по назначению, а внутри роли порядок остаётся (priority, id) — тот самый, которым
@@ -161,11 +181,37 @@ def providers(request):
     for p in items:
         p.default_roles = default_for.get(p.pk, [])
 
+    from .pricing import get_openrouter_pricing
+
+    pricing_map = get_openrouter_pricing()
+    pricing_error = None
+    if not pricing_map:
+        pricing_error = "Цены OpenRouter пока недоступны — покажем «нет данных»."
+    for p in items:
+        if p.dialect == AIProvider.DIALECT_OPENROUTER:
+            raw = pricing_map.get(p.model)
+            if raw:
+                from .pricing import format_price
+
+                p.or_price = format_price(raw["prompt"])
+                p.or_price_out = format_price(raw["completion"])
+                p.or_price_raw = raw
+            else:
+                p.or_price = None
+                p.or_price_out = None
+                p.or_price_raw = None
+        else:
+            p.or_price = None
+            p.or_price_out = None
+            p.or_price_raw = None
+
     return render(request, "aicore/providers.html", {
         "providers": items,
         "sort": sort,
         "dir": "desc" if desc else "asc",
         "next_dir": "asc" if desc else "desc",
+        "or_pricing": pricing_map,
+        "or_pricing_error": pricing_error,
     })
 
 
