@@ -158,8 +158,8 @@ def _avg_price(entry):
     return (entry["prompt"] + entry["completion"]) / 2
 
 
-def cheaper_in_tier(model_id, catalog=None, limit=3):
-    """Модели дешевле текущей в том же тире (окно ±0 бакета), отсорт. по avg цене."""
+def cheaper_in_tier(model_id, catalog=None, limit=5):
+    """Модели дешевле текущей в том же тире, отсорт. по интеллекту (лучшие сначала)."""
     if catalog is None:
         catalog = get_openrouter_catalog()
     cur = _resolve_entry(model_id, catalog)
@@ -196,5 +196,5 @@ def cheaper_in_tier(model_id, catalog=None, limit=3):
             "avg": avg,
             "saving": saving,
         })
-    candidates.sort(key=lambda x: x["avg"])
+    candidates.sort(key=lambda x: (-x["intelligence"], x["avg"]))
     return candidates[:limit]

@@ -110,9 +110,9 @@
                       <div class="text-muted" title="У модели нет benchmarks.artificial_analysis.intelligence_index — класс не определён, в сравнение не берём">интеллект — нет оценки</div>
                     {% endif %}
                     {% if p.or_cheaper %}
-                      <div class="mt-1">дешевле в классе:
+                      <div class="mt-1">дешевле в классе (топ-5 по интеллекту):
                         {% for c in p.or_cheaper %}
-                          <div class="text-nowrap">— {{ c.id }} <span class="text-muted">{{ c.prompt_str }}/M in · {{ c.completion_str }}/M out · −{{ c.saving|floatformat:0 }}%</span></div>
+                          <div class="text-nowrap">— {{ c.id }} <span class="text-muted">🧠{{ c.intelligence }} {{ c.prompt_str }}/M·{{ c.completion_str }}/M −{{ c.saving|floatformat:0 }}%</span></div>
                         {% endfor %}
                       </div>
                     {% elif p.or_intelligence is not None %}
