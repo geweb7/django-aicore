@@ -175,8 +175,8 @@ def cheaper_in_tier(model_id, catalog=None, limit=3):
             continue
         if tier_of(entry["intelligence"]) != tier:
             continue
-        # :free — бесплатный тариф с лимитами 20 req/min, в прод не годится; 0/0 тоже мусор для сравнения
-        if mid.endswith(":free") or (entry["prompt"] == 0 and entry["completion"] == 0):
+        # :free — лимит 20 req/min, :batch — батч-API с другой латентностью, 0/0 — не для продакшена
+        if mid.endswith(":free") or mid.endswith(":batch") or (entry["prompt"] == 0 and entry["completion"] == 0):
             continue
         if mid == model_id or mid.endswith("/" + model_id):
             continue
