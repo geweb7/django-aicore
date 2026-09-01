@@ -209,7 +209,7 @@ def providers(request):
     for p in items:
         p.default_roles = default_for.get(p.pk, [])
 
-    from .pricing import cheaper_in_tier, format_price, get_openrouter_catalog, tier_label, tier_of
+    from .pricing import candidates_in_tier, format_price, get_openrouter_catalog, tier_label, tier_of
 
     catalog = get_openrouter_catalog()
     pricing_error = None
@@ -231,8 +231,8 @@ def providers(request):
                 p.or_intelligence = raw.get("intelligence")
                 p.or_tier = tier_of(p.or_intelligence)
                 p.or_tier_label = tier_label(p.or_tier)
-                # Прозрачность: дешевле в том же классе (бакет 10) — без ручной полки, :free исключены.
-                p.or_cheaper = cheaper_in_tier(p.model, catalog) if p.or_intelligence is not None else []
+                p.or_candidates = candidates_in_tier(p.model, catalog) if p.or_intelligence is not None else []
+                p.or_cheaper = [c for c in p.or_candidates if c["saving"] < 0]
                 p.or_resolved_id = next((mid for mid, e in catalog.items() if e is raw), p.model)
                 p.or_not_found = False
             else:

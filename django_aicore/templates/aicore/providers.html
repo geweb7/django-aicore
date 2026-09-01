@@ -69,7 +69,6 @@
                 Теги{% if sort == 'tags' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
               </a>
             </th>
-            <th style="width:1%">Endpoint</th>
             <th style="width:1%"></th>
           </tr>
         </thead>
@@ -98,6 +97,7 @@
                 {% if p.description %}
                   <div class="text-muted small">{{ p.description }}</div>
                 {% endif %}
+                <div class="text-muted small font-monospace text-break" style="font-size:0.75em" title="{{ p.base_url }}">{{ p.base_url }}</div>
               </td>
               <td class="small prov-price">
                 {% if p.dialect == "openrouter" %}
@@ -111,14 +111,14 @@
                     {% else %}
                       <div class="text-muted" title="У модели нет benchmarks.artificial_analysis.intelligence_index — класс не определён, в сравнение не берём">интеллект — нет оценки</div>
                     {% endif %}
-                    {% if p.or_cheaper %}
-                      <div class="mt-1">дешевле в классе (топ-5 по 🧠):
-                        {% for c in p.or_cheaper %}
-                          <div>— <form method="post" action="{% url 'aicore:provider_switch_model' p.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="new_model" value="{{ c.id }}"><button type="submit" class="btn btn-link btn-sm p-0 prov-cand-btn font-monospace text-decoration-underline" title="Заменить {{ p.model }} → {{ c.id }}">{{ c.id }}</button></form> <span class="text-muted">🧠{{ c.intelligence }} {{ c.prompt_str }}/M·{{ c.completion_str }}/M −{{ c.saving|floatformat:0 }}%</span></div>
+                    {% if p.or_candidates %}
+                      <div class="mt-1">в классе {{ p.or_tier_label }} (топ-5 по 🧠, клик — замена):
+                        {% for c in p.or_candidates %}
+                          <div>— <form method="post" action="{% url 'aicore:provider_switch_model' p.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="new_model" value="{{ c.id }}"><button type="submit" class="btn btn-link btn-sm p-0 prov-cand-btn font-monospace text-decoration-underline" title="Заменить {{ p.model }} → {{ c.id }} ({{ c.saving|floatformat:0 }}%)">{{ c.id }}</button></form> <span class="text-muted">🧠{{ c.intelligence }} {{ c.prompt_str }}/M·{{ c.completion_str }}/M {% if c.saving < 0 %}−{{ c.saving|floatformat:0|slice:"1:" }}%{% elif c.saving > 0 %}+{{ c.saving|floatformat:0 }}%{% else %}—{% endif %}</span></div>
                         {% endfor %}
                       </div>
                     {% elif p.or_intelligence is not None %}
-                      <div class="text-muted mt-1">дешевле в классе нет</div>
+                      <div class="text-muted mt-1">в классе нет кандидатов</div>
                     {% endif %}
                   {% else %}
                     {% if p.or_not_found %}
@@ -139,7 +139,6 @@
                   <span class="text-muted">—</span>
                 {% endfor %}
               </td>
-              <td class="prov-url text-muted small font-monospace" title="{{ p.base_url }}">{{ p.base_url }}</td>
               <td class="prov-actions">
                 <div class="d-flex gap-1 justify-content-end">
                   <form method="post" action="{% url 'aicore:provider_copy' p.pk %}" class="d-inline">
@@ -167,7 +166,7 @@
     </div>
 
     <div class="alert alert-light border small mt-2 mb-0">
-      <b>Где цена:</b> колонка «Цена OpenRouter» — $ за 1M (in/out) из <code>openrouter.ai/api/v1/models</code>, кэш 6ч. Кнопка «Обновить каталог» форсит обновление. Интеллект — <code>benchmarks.artificial_analysis.intelligence_index</code> (160/420, остальные — «нет оценки»). Класс — бакет 10 (30–40 и т.п.). «дешевле в классе» — до 5 дешевле того же класса, отсорт. по 🧠, клик по имени — замена модели (POST, без JS). Bootstrap 5 + <code>table-responsive</code> — таблица скроллится, а не ломает вёрстку.
+      <b>Где цена:</b> «Цена OpenRouter» — $ за 1M (in/out) из <code>openrouter.ai/api/v1/models</code>, кэш 6ч, «Обновить каталог» форсит. Интеллект — <code>benchmarks.artificial_analysis.intelligence_index</code> (160/420, остальные — «нет оценки»). Класс — бакет 10. Кандидаты — топ-5 того же класса по 🧠, с ценой и ±% к текущей, клик по имени — замена (POST). Endpoint теперь под моделью, таблица — <code>table-responsive</code> Bootstrap 5.
     </div>
   {% else %}
     <p class="text-muted">Провайдеров нет. Добавьте провайдера (например, OpenRouter или Anthropic).</p>

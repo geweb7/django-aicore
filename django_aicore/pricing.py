@@ -158,8 +158,12 @@ def _avg_price(entry):
     return (entry["prompt"] + entry["completion"]) / 2
 
 
-def cheaper_in_tier(model_id, catalog=None, limit=5):
-    """Модели дешевле текущей в том же тире, отсорт. по интеллекту (лучшие сначала)."""
+def candidates_in_tier(model_id, catalog=None, limit=5):
+    """Кандидаты того же тира (бакет 10), отсорт. по интеллекту — и дешевле и дороже.
+
+    Показываем лучших по 🧠 в классе, а не только дешевле: можно перейти и на более
+    умную дорогую. :free/:batch/0 вне сравнения.
+    """
     if catalog is None:
         catalog = get_openrouter_catalog()
     cur = _resolve_entry(model_id, catalog)
@@ -175,15 +179,13 @@ def cheaper_in_tier(model_id, catalog=None, limit=5):
             continue
         if tier_of(entry["intelligence"]) != tier:
             continue
-        # :free — лимит 20 req/min, :batch — батч-API с другой латентностью, 0/0 — не для продакшена
         if mid.endswith(":free") or mid.endswith(":batch") or (entry["prompt"] == 0 and entry["completion"] == 0):
             continue
         if mid == model_id or mid.endswith("/" + model_id):
             continue
         avg = _avg_price(entry)
-        if avg >= cur_avg:
-            continue
-        saving = (1 - avg / cur_avg) * 100 if cur_avg else 0
+        # saving: + — дороже, − — дешевле (знак как в шаблоне)
+        saving = (avg / cur_avg * 100 - 100) if cur_avg else 0
         candidates.append({
             "id": mid,
             "name": entry.get("name", mid),
@@ -198,3 +200,8 @@ def cheaper_in_tier(model_id, catalog=None, limit=5):
         })
     candidates.sort(key=lambda x: (-x["intelligence"], x["avg"]))
     return candidates[:limit]
+
+
+def cheaper_in_tier(model_id, catalog=None, limit=5):
+    """Совместимость: только дешевле."""
+    return [c for c in candidates_in_tier(model_id, catalog, limit=10) if c["saving"] < 0][:limit]
