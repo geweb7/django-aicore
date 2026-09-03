@@ -52,6 +52,10 @@ class Provider(models.Model):
 
     name = models.CharField(max_length=100, verbose_name="Название")
     dialect = models.CharField(max_length=20, choices=DIALECT_CHOICES, verbose_name="Диалект API")
+    # Один endpoint на провайдера, а не на каждую AI модель: две модели одного
+    # провайдера (разные id моделей у одного и того же сервиса) не могут отвечать на
+    # разные адреса — раньше это поле дублировалось на AIModel и могло разойтись.
+    base_url = models.URLField(verbose_name="API endpoint")
 
     class Meta:
         ordering = ["name"]
@@ -107,7 +111,6 @@ class AIModel(models.Model):
     api_key = models.ForeignKey(AIApiKey, on_delete=models.PROTECT, related_name="ai_models",
                                 verbose_name="API ключ")
     model = models.CharField(max_length=100, verbose_name="Модель")
-    base_url = models.URLField(verbose_name="API endpoint")
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default=ROLE_SMART, verbose_name="Роль")
     is_active = models.BooleanField(default=False, verbose_name="Активный")
     # Несколько активных моделей с одной ролью — нормальное состояние: задачи выбирают

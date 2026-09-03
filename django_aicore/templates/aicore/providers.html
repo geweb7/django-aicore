@@ -12,17 +12,20 @@
 
       <p class="text-muted small">
         Провайдер — кто выпустил ключ и как с ним разговаривать (OpenAI, OpenRouter, Gemini…).
-        Диалект (формат запроса) выбирается здесь, один раз на провайдера — ключи и AI модели
-        его больше не выбирают сами, он приходит вместе с выбранным ключом.
+        Диалект и endpoint выбираются здесь, один раз на провайдера — ключи и AI модели
+        их больше не выбирают сами, они приходят вместе с выбранным ключом.
       </p>
 
-      <div class="card">
+      <div class="card mb-3">
         <div class="card-header fw-semibold">
           <i class="bi bi-plus me-1"></i>Добавить провайдера
         </div>
         <div class="card-body">
           <form method="post" action="{% url 'aicore:provider_add' %}">
             {% csrf_token %}
+            {% if form.errors %}
+              <div class="alert alert-danger small">{{ form.errors }}</div>
+            {% endif %}
             <div class="mb-3">
               <label class="form-label fw-semibold">{{ form.name.label }}</label>
               {{ form.name }}
@@ -31,9 +34,26 @@
               <label class="form-label fw-semibold">{{ form.dialect.label }}</label>
               {{ form.dialect }}
             </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ form.base_url.label }}</label>
+              {{ form.base_url }}
+            </div>
             <button type="submit" class="btn btn-sm btn-dark">Добавить</button>
           </form>
         </div>
+      </div>
+
+      <div class="alert alert-info small mb-0">
+        <strong>Примеры endpoint</strong> (у OpenAI-совместимых — всегда полный путь метода,
+        не корень <code>/v1</code>):<br>
+        Anthropic: <code>https://api.anthropic.com/v1/messages</code><br>
+        OpenAI: <code>https://api.openai.com/v1/chat/completions</code><br>
+        OpenRouter: <code>https://openrouter.ai/api/v1/chat/completions</code><br>
+        TokenRouter: <code>https://api.tokenrouter.com/v1/chat/completions</code><br>
+        Groq: <code>https://api.groq.com/openai/v1/chat/completions</code><br>
+        DeepSeek: <code>https://api.deepseek.com/v1/chat/completions</code><br>
+        Gemini: <code>https://generativelanguage.googleapis.com/v1beta</code><br>
+        Эмбеддинги: <code>https://api.openai.com/v1/embeddings</code>
       </div>
 
     </div>
@@ -47,11 +67,11 @@
           <div class="card-body">
             <form method="post" action="{% url 'aicore:provider_save' provider.pk %}" class="row g-2 align-items-end">
               {% csrf_token %}
-              <div class="col-sm-5">
+              <div class="col-sm-4">
                 <label class="form-label small mb-1">Название</label>
                 <input type="text" name="name" value="{{ provider.name }}" class="form-control form-control-sm">
               </div>
-              <div class="col-sm-4">
+              <div class="col-sm-3">
                 <label class="form-label small mb-1">Диалект</label>
                 <select name="dialect" class="form-select form-select-sm">
                   {% for value, label in provider.DIALECT_CHOICES %}
@@ -59,7 +79,11 @@
                   {% endfor %}
                 </select>
               </div>
-              <div class="col-sm-3 d-flex gap-1">
+              <div class="col-sm-5">
+                <label class="form-label small mb-1">API endpoint</label>
+                <input type="url" name="base_url" value="{{ provider.base_url }}" class="form-control form-control-sm font-monospace">
+              </div>
+              <div class="col-12 d-flex gap-1">
                 <button type="submit" class="btn btn-sm btn-dark flex-grow-1">Сохранить</button>
                 <button type="submit" class="btn btn-sm btn-outline-danger"
                         formaction="{% url 'aicore:provider_delete' provider.pk %}"

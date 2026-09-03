@@ -34,6 +34,15 @@ class Migration(migrations.Migration):
             model_name='aiprovider',
             name='dialect',
         ),
+        migrations.RemoveField(
+            model_name='aiprovider',
+            name='base_url',
+        ),
+        migrations.AlterField(
+            model_name='provider',
+            name='base_url',
+            field=models.URLField(verbose_name='API endpoint'),
+        ),
         migrations.RenameModel(
             old_name='AIProvider',
             new_name='AIModel',

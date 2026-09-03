@@ -13,7 +13,7 @@ class AIModelTagInline(admin.TabularInline):
 
 @admin.register(Provider)
 class ProviderAdmin(admin.ModelAdmin):
-    list_display = ["name", "dialect"]
+    list_display = ["name", "dialect", "base_url"]
     list_filter = ["dialect"]
 
 

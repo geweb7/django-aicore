@@ -799,7 +799,7 @@ def _call_ai_model(ai_model, messages, max_tokens=16000, timeout=None, temperatu
 
     if dialect == Provider.DIALECT_GEMINI:
         headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-        url = ai_model.base_url.rstrip("/")
+        url = ai_model.api_key.provider.base_url.rstrip("/")
         if ":generateContent" not in url:
             if "v1beta" not in url and "v1" not in url:
                 url = f"{url}/v1beta"
@@ -837,7 +837,7 @@ def _call_ai_model(ai_model, messages, max_tokens=16000, timeout=None, temperatu
         payload["usage"] = {"include": True}
     else:
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-        url = ai_model.base_url
+        url = ai_model.api_key.provider.base_url
         payload = {"model": ai_model.model, "messages": messages, "temperature": temperature}
         if max_tokens:
             payload["max_tokens"] = max_tokens
@@ -1140,7 +1140,7 @@ def get_embeddings_batch(texts, batch_size=100, caller=""):
     if not ai_model:
         return [None] * len(texts), "Нет активной AI модели с ролью «эмбеддинг»"
 
-    base = ai_model.base_url.rstrip("/")
+    base = ai_model.api_key.provider.base_url.rstrip("/")
     url = base if base.endswith("/embeddings") else base + "/embeddings"
     headers = {"Authorization": f"Bearer {ai_model.api_key.key}", "Content-Type": "application/json"}
     where = f"от модели «{ai_model.model}» ({url})"

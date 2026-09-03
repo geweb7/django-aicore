@@ -21,6 +21,9 @@ class Migration(migrations.Migration):
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(max_length=100, verbose_name='Название')),
                 ('dialect', models.CharField(choices=[('openai', 'OpenAI-совместимый (POST на указанный endpoint)'), ('gemini', 'Gemini (путь достраивается)'), ('openrouter', 'OpenRouter (адрес фиксирован в коде)')], max_length=20, verbose_name='Диалект API')),
+                # blank/default временные — заполняются в 0012 из старого AIProvider.base_url,
+                # окончательно снимаются в 0013 (AlterField), когда пустых строк уже не будет.
+                ('base_url', models.URLField(blank=True, default='', verbose_name='API endpoint')),
             ],
             options={
                 'verbose_name': 'Провайдер',

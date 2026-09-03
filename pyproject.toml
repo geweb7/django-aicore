@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-aicore"
-version = "0.2.0"
+version = "0.2.1"
 description = "Reusable Django app: AI models by role, providers/keys, model calls, proxy pool, background tasks and call log UI"
 readme = "README.md"
 requires-python = ">=3.10"

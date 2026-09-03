@@ -101,7 +101,7 @@
                 {% if p.description %}
                   <div class="text-muted small">{{ p.description }}</div>
                 {% endif %}
-                <div class="text-muted small font-monospace text-break" style="font-size:0.75em" title="{{ p.base_url }}">{{ p.base_url }}</div>
+                <div class="text-muted small font-monospace text-break" style="font-size:0.75em" title="{{ p.api_key.provider.base_url }}">{{ p.api_key.provider.base_url }}</div>
               </td>
               <td class="small prov-price">
                 {% if p.api_key.provider.dialect == "openrouter" %}

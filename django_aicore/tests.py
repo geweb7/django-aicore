@@ -21,9 +21,10 @@ from .models import AICallLog, AIApiKey, AIModel, AITask, Provider
 def make_ai_model(**kwargs):
     dialect = kwargs.pop("dialect", Provider.DIALECT_OPENAI)
     key_value = kwargs.pop("api_key", "k")
-    provider = Provider.objects.create(name=dialect, dialect=dialect)
+    base_url = kwargs.pop("base_url", "https://example.com/v1/chat/completions")
+    provider = Provider.objects.create(name=dialect, dialect=dialect, base_url=base_url)
     api_key = AIApiKey.objects.create(key=key_value, provider=provider)
-    defaults = dict(api_key=api_key, model="m", base_url="https://example.com/v1/chat/completions",
+    defaults = dict(api_key=api_key, model="m",
                     role=AIModel.ROLE_SMART, is_active=True,
                     priority=AIModel.next_free_priority())
     defaults.update(kwargs)

@@ -60,26 +60,13 @@
           {% for e in form.model.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
         </div>
         <div class="mb-3">
-          <label class="form-label fw-semibold" for="{{ form.base_url.id_for_label }}">{{ form.base_url.label }}</label>
-          {{ form.base_url }}
-          {% for e in form.base_url.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-        </div>
-        <div class="mb-3">
           <label class="form-label fw-semibold" for="{{ form.role.id_for_label }}">{{ form.role.label }}</label>
           {{ form.role }}
           {% for e in form.role.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
         </div>
-        <div class="alert alert-info small mb-0">
-          <strong>Примеры endpoint</strong> (у OpenAI-совместимых — всегда полный путь метода,
-          не корень <code>/v1</code>):<br>
-          Anthropic: <code>https://api.anthropic.com/v1/messages</code><br>
-          OpenAI: <code>https://api.openai.com/v1/chat/completions</code><br>
-          OpenRouter: <code>https://openrouter.ai/api/v1/chat/completions</code><br>
-          TokenRouter: <code>https://api.tokenrouter.com/v1/chat/completions</code><br>
-          Groq: <code>https://api.groq.com/openai/v1/chat/completions</code><br>
-          DeepSeek: <code>https://api.deepseek.com/v1/chat/completions</code><br>
-          Gemini: <code>https://generativelanguage.googleapis.com/v1beta</code><br>
-          Эмбеддинги (роль «Эмбеддинг»): <code>https://api.openai.com/v1/embeddings</code>
+        <div class="form-text mb-0">
+          Endpoint и диалект — свойства провайдера выбранного ключа, редактируются на
+          странице <a href="{% url 'aicore:providers' %}">Провайдеры</a>, а не здесь.
         </div>
       </div>
     </div>
