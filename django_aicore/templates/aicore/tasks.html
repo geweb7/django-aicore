@@ -6,8 +6,8 @@
 
   <div class="d-flex justify-content-between align-items-center mb-2">
     <h4 class="mb-0"><i class="bi bi-sliders me-2 text-muted"></i>AI задачи</h4>
-    <a href="{% url 'aicore:providers' %}" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-cpu"></i> Провайдеры
+    <a href="{% url 'aicore:ai_models' %}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-cpu"></i> AI модели
     </a>
   </div>
 
@@ -37,7 +37,7 @@
             {% csrf_token %}
 
             <div class="col-sm-4">
-              <label class="form-label small mb-1">Тег провайдера</label>
+              <label class="form-label small mb-1">Тег модели</label>
               <input type="text" name="tag" value="{{ t.tag }}" list="tags-{{ t.pk }}"
                      class="form-control form-control-sm" placeholder="— не выбирать по тегу —">
               <datalist id="tags-{{ t.pk }}">

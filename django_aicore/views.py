@@ -12,7 +12,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.core.paginator import Paginator
-from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models import Count, DecimalField, ProtectedError, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -20,9 +20,9 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
-from .core import AIUnavailableError, get_provider, refresh_costs, refreshable_costs
-from .forms import AIProviderForm, AIProviderTagFormSet
-from .models import AICallLog, AIProvider, AIProviderTag, AITask, ProxySettings
+from .core import AIUnavailableError, get_ai_model, refresh_costs, refreshable_costs
+from .forms import AIApiKeyForm, AIModelForm, AIModelTagFormSet, ProviderForm
+from .models import AIApiKey, AICallLog, AIModel, AIModelTag, AITask, Provider, ProxySettings
 
 logger = logging.getLogger(__name__)
 
@@ -127,38 +127,38 @@ def task_poll(request, task_id):
 
 
 @login_required
-def provider_switch_model(request, pk):
-    provider = get_object_or_404(AIProvider, pk=pk)
+def ai_model_switch_model(request, pk):
+    ai_model = get_object_or_404(AIModel, pk=pk)
     if request.method != "POST":
-        return redirect("aicore:providers")
+        return redirect("aicore:ai_models")
     new_model = (request.POST.get("new_model") or "").strip()
     if not new_model:
         messages.error(request, "Новая модель не указана.")
-        return redirect("aicore:providers")
+        return redirect("aicore:ai_models")
     from .pricing import _resolve_entry, get_openrouter_catalog
 
-    if provider.dialect != AIProvider.DIALECT_OPENROUTER:
-        messages.error(request, f"Провайдер {provider.model} не openrouter — смена модели через каталог недоступна.")
-        return redirect("aicore:providers")
+    if ai_model.api_key.provider.dialect != Provider.DIALECT_OPENROUTER:
+        messages.error(request, f"Модель {ai_model.model} не openrouter — смена модели через каталог недоступна.")
+        return redirect("aicore:ai_models")
     catalog = get_openrouter_catalog()
     if not catalog:
         messages.error(request, "Каталог OpenRouter пуст — нажми «Обновить каталог».")
-        return redirect("aicore:providers")
+        return redirect("aicore:ai_models")
     entry = _resolve_entry(new_model, catalog)
     if not entry:
         messages.error(request, f"Модель «{new_model}» нет в каталоге OpenRouter — проверь id (author/slug).")
-        return redirect("aicore:providers")
-    old = provider.model
-    provider.model = new_model
-    provider.save(update_fields=["model"])
-    messages.success(request, f"Провайдер {provider.get_role_display()} «{old}» → «{new_model}» ({entry['prompt']} in · {entry['completion']} out).")
-    return redirect("aicore:providers")
+        return redirect("aicore:ai_models")
+    old = ai_model.model
+    ai_model.model = new_model
+    ai_model.save(update_fields=["model"])
+    messages.success(request, f"{ai_model.get_role_display()} «{old}» → «{new_model}» ({entry['prompt']} in · {entry['completion']} out).")
+    return redirect("aicore:ai_models")
 
 
 @login_required
-def providers_pricing_refresh(request):
+def ai_models_refresh_pricing(request):
     if request.method != "POST":
-        return redirect("aicore:providers")
+        return redirect("aicore:ai_models")
     from .pricing import _avg_price, _resolve_entry, get_openrouter_catalog
 
     old = get_openrouter_catalog()
@@ -167,15 +167,15 @@ def providers_pricing_refresh(request):
         messages.success(request, "Каталог OpenRouter обновлён (цены + интеллект).")
         # fail fast для цены: ловим подорожание используемых моделей
         hikes = []
-        for p in AIProvider.objects.filter(dialect=AIProvider.DIALECT_OPENROUTER).exclude(model=""):
-            o = _resolve_entry(p.model, old) if old else None
-            n = _resolve_entry(p.model, new)
+        for m in AIModel.objects.filter(api_key__provider__dialect=Provider.DIALECT_OPENROUTER).exclude(model=""):
+            o = _resolve_entry(m.model, old) if old else None
+            n = _resolve_entry(m.model, new)
             if not o or not n:
                 continue
             old_avg, new_avg = _avg_price(o), _avg_price(n)
             if old_avg and new_avg > old_avg * 1.05:  # +5%
                 pct = (new_avg / old_avg * 100 - 100)
-                hikes.append(f"{p.model}: {o['prompt']}/{o['completion']} → {n['prompt']}/{n['completion']} (+{pct:.0f}%)")
+                hikes.append(f"{m.model}: {o['prompt']}/{o['completion']} → {n['prompt']}/{n['completion']} (+{pct:.0f}%)")
         for h in hikes:
             messages.warning(request, f"Цена поднялась: {h}")
     except Exception as e:
@@ -185,43 +185,44 @@ def providers_pricing_refresh(request):
 
         if cache.get(CATALOG_KEY) is None:
             messages.info(request, "Кэша каталога пока нет — на странице будет «нет данных» до следующего успешного обновления.")
-    return redirect("aicore:providers")
+    return redirect("aicore:ai_models")
 
 
 @login_required
-def providers(request):
-    # По умолчанию группируем по роли: роль — то, чем провайдер отличается от соседа
+def ai_models(request):
+    # По умолчанию группируем по роли: роль — то, чем модель отличается от соседа
     # по назначению, а внутри роли порядок остаётся (priority, id) — тот самый, которым
-    # выбирает get_provider. Сортируем в Python: ключ роли — позиция в ROLE_CHOICES,
+    # выбирает get_ai_model. Сортируем в Python: ключ роли — позиция в ROLE_CHOICES,
     # а не алфавит («Гений» не должен оказываться между «Дешёвой» и «Умной»).
-    role_order = {value: i for i, (value, _) in enumerate(AIProvider.ROLE_CHOICES)}
+    role_order = {value: i for i, (value, _) in enumerate(AIModel.ROLE_CHOICES)}
     sort_keys = {
-        "role": lambda p: (role_order.get(p.role, 99), p.priority, p.pk),
-        "priority": lambda p: (p.priority, p.pk),
-        "status": lambda p: (not p.is_active, p.priority, p.pk),
-        "dialect": lambda p: (p.dialect, p.priority, p.pk),
-        "model": lambda p: (p.model.lower(), p.priority, p.pk),
-        "tags": lambda p: (sorted(t.name.lower() for t in p.tags.all()) or [""], p.priority, p.pk),
+        "role": lambda m: (role_order.get(m.role, 99), m.priority, m.pk),
+        "priority": lambda m: (m.priority, m.pk),
+        "status": lambda m: (not m.is_active, m.priority, m.pk),
+        "provider": lambda m: (m.api_key.provider.name.lower(), m.priority, m.pk),
+        "model": lambda m: (m.model.lower(), m.priority, m.pk),
+        "tags": lambda m: (sorted(t.name.lower() for t in m.tags.all()) or [""], m.priority, m.pk),
     }
     sort = request.GET.get("sort") or "role"
     if sort not in sort_keys:
         sort = "role"
     desc = request.GET.get("dir") == "desc"
 
-    items = sorted(AIProvider.objects.prefetch_related("tags"), key=sort_keys[sort], reverse=desc)
+    items = sorted(AIModel.objects.select_related("api_key", "api_key__provider").prefetch_related("tags"),
+                   key=sort_keys[sort], reverse=desc)
 
-    # Кого реально вернёт выбор по роли — спрашиваем сам get_provider, а не пересказываем
+    # Кого реально вернёт выбор по роли — спрашиваем сам get_ai_model, а не пересказываем
     # его логику в шаблоне. Так в списке видно и тай-брейк по приоритету, и перехват
     # тегом с именем роли, и фолбэк ролей на smart — ровно то, что произойдёт в рантайме.
     default_for = {}
-    for value, label in AIProvider.ROLE_CHOICES:
+    for value, label in AIModel.ROLE_CHOICES:
         try:
-            winner = get_provider(value)
+            winner = get_ai_model(value)
         except AIUnavailableError:
             continue
         default_for.setdefault(winner.pk, []).append(label)
-    for p in items:
-        p.default_roles = default_for.get(p.pk, [])
+    for m in items:
+        m.default_roles = default_for.get(m.pk, [])
 
     from .pricing import candidates_in_tier, format_price, get_openrouter_catalog, tier_label, tier_of
 
@@ -235,42 +236,42 @@ def providers(request):
         )
     from .pricing import _resolve_entry
 
-    for p in items:
-        if p.dialect == AIProvider.DIALECT_OPENROUTER:
-            raw = _resolve_entry(p.model, catalog)
+    for m in items:
+        if m.api_key.provider.dialect == Provider.DIALECT_OPENROUTER:
+            raw = _resolve_entry(m.model, catalog)
             if raw:
-                p.or_price = format_price(raw["prompt"])
-                p.or_price_out = format_price(raw["completion"])
-                p.or_price_raw = raw
-                p.or_intelligence = raw.get("intelligence")
+                m.or_price = format_price(raw["prompt"])
+                m.or_price_out = format_price(raw["completion"])
+                m.or_price_raw = raw
+                m.or_intelligence = raw.get("intelligence")
                 # класс — окно ±5 вокруг интеллекта, а не бакет 10
-                p.or_tier_label = f"{p.or_intelligence-5:.1f}–{p.or_intelligence+5:.1f}" if p.or_intelligence is not None else None
-                p.or_candidates = candidates_in_tier(p.model, catalog) if p.or_intelligence is not None else []
-                p.or_cheaper = [c for c in p.or_candidates if c["saving"] < 0]
-                p.or_resolved_id = next((mid for mid, e in catalog.items() if e is raw), p.model)
-                p.or_not_found = False
+                m.or_tier_label = f"{m.or_intelligence-5:.1f}–{m.or_intelligence+5:.1f}" if m.or_intelligence is not None else None
+                m.or_candidates = candidates_in_tier(m.model, catalog) if m.or_intelligence is not None else []
+                m.or_cheaper = [c for c in m.or_candidates if c["saving"] < 0]
+                m.or_resolved_id = next((mid for mid, e in catalog.items() if e is raw), m.model)
+                m.or_not_found = False
             else:
                 # fail fast: модель не в каталоге — видно сразу, с подсказкой про формат id
-                p.or_price = None
-                p.or_price_out = None
-                p.or_price_raw = None
-                p.or_intelligence = None
-                p.or_tier = None
-                p.or_tier_label = None
-                p.or_cheaper = []
-                p.or_not_found = True
-                p.or_resolved_id = None
+                m.or_price = None
+                m.or_price_out = None
+                m.or_price_raw = None
+                m.or_intelligence = None
+                m.or_tier = None
+                m.or_tier_label = None
+                m.or_cheaper = []
+                m.or_not_found = True
+                m.or_resolved_id = None
         else:
-            p.or_price = None
-            p.or_price_out = None
-            p.or_price_raw = None
-            p.or_intelligence = None
-            p.or_tier = None
-            p.or_tier_label = None
-            p.or_cheaper = []
+            m.or_price = None
+            m.or_price_out = None
+            m.or_price_raw = None
+            m.or_intelligence = None
+            m.or_tier = None
+            m.or_tier_label = None
+            m.or_cheaper = []
 
-    return render(request, "aicore/providers.html", {
-        "providers": items,
+    return render(request, "aicore/ai_models.html", {
+        "ai_models": items,
         "sort": sort,
         "dir": "desc" if desc else "asc",
         "next_dir": "asc" if desc else "desc",
@@ -281,12 +282,12 @@ def providers(request):
 
 @login_required
 def tasks(request):
-    known_tags = sorted(AIProviderTag.objects.filter(provider__is_active=True)
+    known_tags = sorted(AIModelTag.objects.filter(ai_model__is_active=True)
                         .values_list("name", flat=True).distinct())
     return render(request, "aicore/tasks.html", {
         "tasks": AITask.objects.all(),
         "known_tags": known_tags,
-        "roles": AIProvider.ROLE_CHOICES,
+        "roles": AIModel.ROLE_CHOICES,
     })
 
 
@@ -323,58 +324,153 @@ def task_delete(request, pk):
 
 
 @login_required
-def provider_add(request):
-    form = AIProviderForm(request.POST or None,
-                          initial={"priority": AIProvider.next_free_priority()})
-    tag_formset = AIProviderTagFormSet(request.POST or None, instance=AIProvider())
+def ai_model_add(request):
+    form = AIModelForm(request.POST or None,
+                       initial={"priority": AIModel.next_free_priority()})
+    tag_formset = AIModelTagFormSet(request.POST or None, instance=AIModel())
     if form.is_valid() and tag_formset.is_valid():
-        provider = form.save()
-        tag_formset.instance = provider
+        ai_model = form.save()
+        tag_formset.instance = ai_model
         tag_formset.save()
-        messages.success(request, "Провайдер добавлен.")
-        return redirect("aicore:providers")
-    return render(request, "aicore/provider_form.html", {
-        "form": form, "tag_formset": tag_formset, "title": "Новый провайдер",
+        messages.success(request, "Модель добавлена.")
+        return redirect("aicore:ai_models")
+    return render(request, "aicore/ai_model_form.html", {
+        "form": form, "tag_formset": tag_formset, "title": "Новая AI модель",
     })
 
 
 @login_required
-def provider_edit(request, pk):
-    provider = get_object_or_404(AIProvider, pk=pk)
-    form = AIProviderForm(request.POST or None, instance=provider)
-    tag_formset = AIProviderTagFormSet(request.POST or None, instance=provider)
+def ai_model_edit(request, pk):
+    ai_model = get_object_or_404(AIModel, pk=pk)
+    form = AIModelForm(request.POST or None, instance=ai_model)
+    tag_formset = AIModelTagFormSet(request.POST or None, instance=ai_model)
     if form.is_valid() and tag_formset.is_valid():
         form.save()
         tag_formset.save()
-        messages.success(request, "Провайдер сохранён.")
-        return redirect("aicore:providers")
-    return render(request, "aicore/provider_form.html", {
-        "form": form, "tag_formset": tag_formset, "title": "Редактировать провайдер", "provider": provider,
+        messages.success(request, "Модель сохранена.")
+        return redirect("aicore:ai_models")
+    return render(request, "aicore/ai_model_form.html", {
+        "form": form, "tag_formset": tag_formset, "title": "Редактировать AI модель", "ai_model": ai_model,
     })
 
 
 @login_required
-def provider_copy(request, pk):
-    src = get_object_or_404(AIProvider, pk=pk)
+def ai_model_copy(request, pk):
+    src = get_object_or_404(AIModel, pk=pk)
     tags = list(src.tags.values_list("name", flat=True))
     src.pk = None
     src.is_active = False
     # Приоритет уникален — копия не может унаследовать чужой; уводим в конец очереди.
-    src.priority = AIProvider.next_free_priority()
+    src.priority = AIModel.next_free_priority()
     src.save()
     for name in tags:
         src.tags.create(name=name)
-    messages.success(request, f"Провайдер скопирован (приоритет {src.priority}) — отредактируйте копию.")
-    return redirect("aicore:provider_edit", pk=src.pk)
+    messages.success(request, f"Модель скопирована (приоритет {src.priority}) — отредактируйте копию.")
+    return redirect("aicore:ai_model_edit", pk=src.pk)
+
+
+@login_required
+def ai_model_delete(request, pk):
+    ai_model = get_object_or_404(AIModel, pk=pk)
+    if request.method == "POST":
+        ai_model.delete()
+        messages.success(request, "Модель удалена.")
+    return redirect("aicore:ai_models")
+
+
+@login_required
+def providers(request):
+    return render(request, "aicore/providers.html", {
+        "providers": Provider.objects.all(),
+        "form": ProviderForm(),
+    })
+
+
+@login_required
+def provider_add(request):
+    if request.method != "POST":
+        return redirect("aicore:providers")
+    form = ProviderForm(request.POST)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Провайдер добавлен.")
+    else:
+        messages.error(request, f"Не сохранено: {form.errors.as_text()}")
+    return redirect("aicore:providers")
+
+
+@login_required
+def provider_save(request, pk):
+    provider = get_object_or_404(Provider, pk=pk)
+    if request.method != "POST":
+        return redirect("aicore:providers")
+    form = ProviderForm(request.POST, instance=provider)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Провайдер сохранён.")
+    else:
+        messages.error(request, f"Не сохранено: {form.errors.as_text()}")
+    return redirect("aicore:providers")
 
 
 @login_required
 def provider_delete(request, pk):
-    provider = get_object_or_404(AIProvider, pk=pk)
+    provider = get_object_or_404(Provider, pk=pk)
     if request.method == "POST":
-        provider.delete()
-        messages.success(request, "Провайдер удалён.")
+        try:
+            provider.delete()
+            messages.success(request, "Провайдер удалён.")
+        except ProtectedError:
+            messages.error(request, f"У провайдера «{provider}» есть ключи (AIApiKey) — сначала удалите их.")
     return redirect("aicore:providers")
+
+
+@login_required
+def api_keys(request):
+    return render(request, "aicore/api_keys.html", {
+        "api_keys": AIApiKey.objects.select_related("provider").prefetch_related("ai_models"),
+        "providers": Provider.objects.all(),
+        "form": AIApiKeyForm(),
+    })
+
+
+@login_required
+def api_key_add(request):
+    if request.method != "POST":
+        return redirect("aicore:api_keys")
+    form = AIApiKeyForm(request.POST)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Ключ добавлен.")
+    else:
+        messages.error(request, f"Не сохранено: {form.errors.as_text()}")
+    return redirect("aicore:api_keys")
+
+
+@login_required
+def api_key_save(request, pk):
+    api_key = get_object_or_404(AIApiKey, pk=pk)
+    if request.method != "POST":
+        return redirect("aicore:api_keys")
+    form = AIApiKeyForm(request.POST, instance=api_key)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Ключ сохранён.")
+    else:
+        messages.error(request, f"Не сохранено: {form.errors.as_text()}")
+    return redirect("aicore:api_keys")
+
+
+@login_required
+def api_key_delete(request, pk):
+    api_key = get_object_or_404(AIApiKey, pk=pk)
+    if request.method == "POST":
+        try:
+            api_key.delete()
+            messages.success(request, "Ключ удалён.")
+        except ProtectedError:
+            messages.error(request, f"Ключ «{api_key}» используется AI моделями — сначала переключите их на другой ключ.")
+    return redirect("aicore:api_keys")
 
 
 # Значение фильтра «приложение», означающее пустое поле app. Пустая строка занята
@@ -429,7 +525,7 @@ def _calls_period(f):
 def calls(request):
     """Журнал вызовов AI. Фильтры — GET-параметрами, чтобы отфильтрованный экран можно
     было дать ссылкой, а не пересказом «выбери там-то то-то»."""
-    qs = AICallLog.objects.select_related("task", "provider")
+    qs = AICallLog.objects.select_related("task", "ai_model")
 
     f = {k: (request.GET.get(k) or "").strip()
          for k in ("q", "ok", "kind", "error_kind", "model", "upstream", "task", "app",

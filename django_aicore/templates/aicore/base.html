@@ -17,8 +17,16 @@
     <span class="navbar-brand fw-semibold">🤖 AI</span>
     <ul class="navbar-nav">
       <li class="nav-item">
-        <a class="nav-link {% if request.resolver_match.url_name == 'providers' or 'provider' in request.resolver_match.url_name %}active{% endif %}"
+        <a class="nav-link {% if 'ai_model' in request.resolver_match.url_name %}active{% endif %}"
+           href="{% url 'aicore:ai_models' %}">AI модели</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if request.resolver_match.url_name == 'providers' or request.resolver_match.url_name == 'provider_add' or request.resolver_match.url_name == 'provider_save' or request.resolver_match.url_name == 'provider_delete' %}active{% endif %}"
            href="{% url 'aicore:providers' %}">Провайдеры</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if 'api_key' in request.resolver_match.url_name %}active{% endif %}"
+           href="{% url 'aicore:api_keys' %}">Ключи</a>
       </li>
       <li class="nav-item">
         <a class="nav-link {% if request.resolver_match.url_name == 'tasks' or request.resolver_match.url_name == 'task_save' or request.resolver_match.url_name == 'task_delete' %}active{% endif %}"

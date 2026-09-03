@@ -20,7 +20,72 @@ def api_url_is_root(url):
     return (tail == "" or bool(_API_ROOT_TAIL.match(tail))), path
 
 
-class AIProvider(models.Model):
+def mask_key_name(key):
+    """Имя ключа по умолчанию, когда его не назвали руками: первые 12 + «…» + последние 3
+    символа значения. Один расчёт — и для миграции существующих ключей (у них имени
+    никогда не было), и для формы, если поле «Название» оставили пустым."""
+    key = key or ""
+    if len(key) <= 15:
+        return key
+    return f"{key[:12]}...{key[-3:]}"
+
+
+class Provider(models.Model):
+    """Провайдер API — кто выпустил ключ и как с ним разговаривать (OpenAI, OpenRouter,
+    Gemini…). Диалект живёт здесь, а не на AIModel: это одна и та же ось «кто/как», и
+    развести их по двум полям значило бы держать один факт в двух местах — выбрал ключ
+    от Gemini, а диалект остался openai, и разошлись."""
+
+    # Как именно разговаривать с провайдером: формат запроса, заголовки и то, достраивается
+    # ли путь. Это выбор администратора, а не догадка по домену: раньше он выводился из
+    # base_url, и всё неопознанное молча объявлялось openai-совместимым. Молчаливое
+    # предположение живёт до первого вызова, а потом всплывает HTTP-ошибкой в трёх слоях
+    # от места, где его сделали.
+    DIALECT_OPENAI = "openai"
+    DIALECT_GEMINI = "gemini"
+    DIALECT_OPENROUTER = "openrouter"
+    DIALECT_CHOICES = [
+        (DIALECT_OPENAI, "OpenAI-совместимый (POST на указанный endpoint)"),
+        (DIALECT_GEMINI, "Gemini (путь достраивается)"),
+        (DIALECT_OPENROUTER, "OpenRouter (адрес фиксирован в коде)"),
+    ]
+
+    name = models.CharField(max_length=100, verbose_name="Название")
+    dialect = models.CharField(max_length=20, choices=DIALECT_CHOICES, verbose_name="Диалект API")
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Провайдер"
+        verbose_name_plural = "Провайдеры"
+
+    def __str__(self):
+        return self.name
+
+
+class AIApiKey(models.Model):
+    key = models.CharField(max_length=500, verbose_name="Ключ")
+    name = models.CharField(max_length=100, blank=True, verbose_name="Название")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Добавлен")
+    # PROTECT: удаление провайдера не должно молча увести с собой ключи, которыми,
+    # возможно, ещё пользуется AIModel — отвязать явно, потом удалять.
+    provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="api_keys",
+                                 verbose_name="Провайдер")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "AI ключ"
+        verbose_name_plural = "AI ключи"
+
+    def save(self, *args, **kwargs):
+        if not self.name:
+            self.name = mask_key_name(self.key)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} ({self.provider})"
+
+
+class AIModel(models.Model):
     ROLE_GENIUS = "genius"
     ROLE_SMART = "smart"
     ROLE_SMART_ALT = "smart-alt"
@@ -36,28 +101,16 @@ class AIProvider(models.Model):
         (ROLE_VISION, "Vision (фото)"),
     ]
 
-    # Диалект — как именно разговаривать с провайдером: формат запроса, заголовки и то,
-    # достраивается ли путь. Это выбор администратора, а не догадка по домену: раньше
-    # он выводился из base_url, и всё неопознанное молча объявлялось openai-совместимым.
-    # Молчаливое предположение живёт до первого вызова, а потом всплывает HTTP-ошибкой
-    # в трёх слоях от места, где его сделали.
-    DIALECT_OPENAI = "openai"
-    DIALECT_GEMINI = "gemini"
-    DIALECT_OPENROUTER = "openrouter"
-    DIALECT_CHOICES = [
-        (DIALECT_OPENAI, "OpenAI-совместимый (POST на указанный endpoint)"),
-        (DIALECT_GEMINI, "Gemini (путь достраивается)"),
-        (DIALECT_OPENROUTER, "OpenRouter (адрес фиксирован в коде)"),
-    ]
-
     description = models.TextField(blank=True, verbose_name="Описание")
-    api_key = models.CharField(max_length=500, verbose_name="API ключ")
+    # PROTECT: ключ используется рантаймом каждого активного AIModel — незаметно потерять
+    # его вслед за удалением было бы тихой поломкой звонка, а не отказом в точке причины.
+    api_key = models.ForeignKey(AIApiKey, on_delete=models.PROTECT, related_name="ai_models",
+                                verbose_name="API ключ")
     model = models.CharField(max_length=100, verbose_name="Модель")
     base_url = models.URLField(verbose_name="API endpoint")
-    dialect = models.CharField(max_length=20, choices=DIALECT_CHOICES, verbose_name="Диалект API")
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default=ROLE_SMART, verbose_name="Роль")
     is_active = models.BooleanField(default=False, verbose_name="Активный")
-    # Несколько активных провайдеров с одной ролью — нормальное состояние: задачи выбирают
+    # Несколько активных моделей с одной ролью — нормальное состояние: задачи выбирают
     # между ними по тегу. Когда выбор идёт по роли, побеждает меньший priority — правило
     # должно быть предсказуемым и видимым, а не «первая строка в таблице».
     # unique: при равных priority победителя решал бы тай-брейк по id — невидимый глазами.
@@ -69,8 +122,8 @@ class AIProvider(models.Model):
 
     class Meta:
         ordering = ["priority", "id"]
-        verbose_name = "AI провайдер"
-        verbose_name_plural = "AI провайдеры"
+        verbose_name = "AI модель"
+        verbose_name_plural = "AI модели"
 
     @classmethod
     def next_free_priority(cls):
@@ -79,17 +132,17 @@ class AIProvider(models.Model):
         return 100 if last is None else last + 1
 
     def __str__(self):
-        return f"{self.dialect}: {self.model}"
+        return f"{self.model} ({self.get_role_display()})"
 
 
-class AIProviderTag(models.Model):
-    provider = models.ForeignKey(AIProvider, on_delete=models.CASCADE, related_name='tags')
+class AIModelTag(models.Model):
+    ai_model = models.ForeignKey(AIModel, on_delete=models.CASCADE, related_name='tags')
     name = models.CharField(max_length=100, verbose_name="Тег")
 
     class Meta:
-        unique_together = [('provider', 'name')]
-        verbose_name = "Тег провайдера"
-        verbose_name_plural = "Теги провайдера"
+        unique_together = [('ai_model', 'name')]
+        verbose_name = "Тег модели"
+        verbose_name_plural = "Теги модели"
 
     def __str__(self):
         return self.name
@@ -249,8 +302,8 @@ class AITask(models.Model):
     default_temperature = models.FloatField(null=True, blank=True, verbose_name="Temperature из кода")
 
     # Переопределения пользователя. Пусто — значит не переопределять.
-    tag = models.CharField(max_length=100, blank=True, verbose_name="Тег провайдера")
-    role = models.CharField(max_length=20, blank=True, choices=AIProvider.ROLE_CHOICES,
+    tag = models.CharField(max_length=100, blank=True, verbose_name="Тег модели")
+    role = models.CharField(max_length=20, blank=True, choices=AIModel.ROLE_CHOICES,
                             verbose_name="Роль (замена)")
     temperature = models.FloatField(null=True, blank=True, verbose_name="Temperature (замена)")
 
@@ -266,7 +319,7 @@ class AITask(models.Model):
 
     @property
     def effective_role(self):
-        return self.role or self.default_role or AIProvider.ROLE_SMART
+        return self.role or self.default_role or AIModel.ROLE_SMART
 
 
 class AICallLog(models.Model):
@@ -296,8 +349,8 @@ class AICallLog(models.Model):
     # определить не смог, не делается вовсе (resolve_app).
     app = models.CharField(max_length=50, blank=True, db_index=True, verbose_name="Приложение")
 
-    provider = models.ForeignKey(AIProvider, null=True, blank=True, on_delete=models.SET_NULL,
-                                 verbose_name="Провайдер")
+    ai_model = models.ForeignKey(AIModel, null=True, blank=True, on_delete=models.SET_NULL,
+                                 verbose_name="Модель")
     role = models.CharField(max_length=20, blank=True, verbose_name="Роль")
     model = models.CharField(max_length=100, blank=True, verbose_name="Модель")
     # Хостер, которому OpenRouter отдал запрос (поле provider в теле ответа).

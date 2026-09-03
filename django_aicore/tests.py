@@ -15,15 +15,19 @@ from django.utils import timezone
 
 from . import core
 from .core import AIUnavailableError, resolve_app, resolve_task
-from .models import AICallLog, AIProvider, AITask
+from .models import AICallLog, AIApiKey, AIModel, AITask, Provider
 
 
-def make_provider(**kwargs):
-    defaults = dict(api_key="k", model="m", base_url="https://example.com/v1/chat/completions",
-                    dialect=AIProvider.DIALECT_OPENAI, role=AIProvider.ROLE_SMART, is_active=True,
-                    priority=AIProvider.next_free_priority())
+def make_ai_model(**kwargs):
+    dialect = kwargs.pop("dialect", Provider.DIALECT_OPENAI)
+    key_value = kwargs.pop("api_key", "k")
+    provider = Provider.objects.create(name=dialect, dialect=dialect)
+    api_key = AIApiKey.objects.create(key=key_value, provider=provider)
+    defaults = dict(api_key=api_key, model="m", base_url="https://example.com/v1/chat/completions",
+                    role=AIModel.ROLE_SMART, is_active=True,
+                    priority=AIModel.next_free_priority())
     defaults.update(kwargs)
-    return AIProvider.objects.create(**defaults)
+    return AIModel.objects.create(**defaults)
 
 
 def run_as_app(app_name, func, *args, **kwargs):
@@ -50,8 +54,8 @@ class ResolveAppTests(TestCase):
     def test_log_row_gets_app_without_being_told(self):
         from .core import _log_call
 
-        provider = make_provider()
-        row = run_as_app("myapp", _log_call, "chat", provider, "кто-то", {}, {})
+        ai_model = make_ai_model()
+        row = run_as_app("myapp", _log_call, "chat", ai_model, "кто-то", {}, {})
         self.assertEqual(row.app, "myapp")
 
 
@@ -84,7 +88,7 @@ class AppIsMandatoryTests(TestCase):
                 resolve_app(task)
 
     def test_embeddings_return_the_refusal_instead_of_raising(self):
-        make_provider(role=AIProvider.ROLE_EMBED)
+        make_ai_model(role=AIModel.ROLE_EMBED)
         with mock.patch.object(core, "calling_app", return_value=""):
             vectors, error = core.get_embeddings_batch(["текст"])
         self.assertEqual(vectors, [None])
@@ -93,17 +97,17 @@ class AppIsMandatoryTests(TestCase):
 
 class ResolveTaskTests(TestCase):
     def test_tag_wins_over_role(self):
-        make_provider(role=AIProvider.ROLE_SMART, model="smart")
-        tagged = make_provider(role=AIProvider.ROLE_CHEAP, model="free-one")
+        make_ai_model(role=AIModel.ROLE_SMART, model="smart")
+        tagged = make_ai_model(role=AIModel.ROLE_CHEAP, model="free-one")
         tagged.tags.create(name="free")
         AITask.objects.create(key="myapp.free", tag="free")
 
-        _, provider, _ = resolve_task("myapp.free")
-        self.assertEqual(provider.pk, tagged.pk)
+        _, ai_model, _ = resolve_task("myapp.free")
+        self.assertEqual(ai_model.pk, tagged.pk)
 
     def test_unresolvable_tag_fails_instead_of_silent_paid_provider(self):
-        paid = make_provider(role=AIProvider.ROLE_SMART, model="paid")
-        tagged = make_provider(role=AIProvider.ROLE_CHEAP, model="free-one", is_active=False)
+        paid = make_ai_model(role=AIModel.ROLE_SMART, model="paid")
+        tagged = make_ai_model(role=AIModel.ROLE_CHEAP, model="free-one", is_active=False)
         tagged.tags.create(name="free")
         AITask.objects.create(key="myapp.free", tag="free")
 
@@ -115,27 +119,27 @@ class ResolveTaskTests(TestCase):
         self.assertNotIn(paid.model, str(ctx.exception).split("Теги активных")[0])
 
     def test_no_tag_falls_back_to_role(self):
-        smart = make_provider(role=AIProvider.ROLE_SMART)
+        smart = make_ai_model(role=AIModel.ROLE_SMART)
         AITask.objects.create(key="myapp.plain")
-        _, provider, _ = resolve_task("myapp.plain", role="cheap")
-        self.assertEqual(provider.pk, smart.pk)
+        _, ai_model, _ = resolve_task("myapp.plain", role="cheap")
+        self.assertEqual(ai_model.pk, smart.pk)
 
 
 class CallsViewTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user("admin", password="x")
         self.client.force_login(self.user)
-        self.provider = make_provider()
+        self.ai_model = make_ai_model()
         self.task = AITask.objects.create(key="promo.agent", name="Агент")
         today = timezone.now()
         self.row = AICallLog.objects.create(
-            kind=AICallLog.KIND_CHAT, task=self.task, app="promo", provider=self.provider,
+            kind=AICallLog.KIND_CHAT, task=self.task, app="promo", ai_model=self.ai_model,
             ok=True, prompt_tokens=100, completion_tokens=50, cost=Decimal("0.5"))
         AICallLog.objects.create(
-            kind=AICallLog.KIND_CHAT, app="plants", provider=self.provider, ok=False,
+            kind=AICallLog.KIND_CHAT, app="plants", ai_model=self.ai_model, ok=False,
             http_status=429, error_kind="http", error="rate limit", prompt_tokens=10)
         AICallLog.objects.create(
-            kind=AICallLog.KIND_EMBED, app="", provider=self.provider, ok=True,
+            kind=AICallLog.KIND_EMBED, app="", ai_model=self.ai_model, ok=True,
             prompt_tokens=7, cost=Decimal("0"))
         self.today = today.date().isoformat()
 

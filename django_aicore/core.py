@@ -9,7 +9,7 @@ from urllib.parse import quote, urlparse
 
 import requests
 
-from .models import AIProvider, AIProviderTag, ProxySettings, api_url_is_root
+from .models import AIModel, AIModelTag, Provider, ProxySettings, api_url_is_root
 
 logger = logging.getLogger(__name__)
 
@@ -108,30 +108,35 @@ def resolve_app(task=None):
     return app
 
 
-def get_provider(role="smart"):
+def get_ai_model(role="smart"):
+    """Активная AI модель под роль — единственный источник этого выбора (тег → роль →
+    фолбэк-цепочка). Консьюмеры обязаны звать эту функцию, а не строить свой queryset по
+    AIModel: у своего queryset нет ни тегов, ни фолбэков, и он молча покажет не ту модель,
+    которая реально ответит на вызов.
+    """
     # Активных с одной ролью может быть несколько; кто победит при выборе по роли,
-    # решает AIProvider.Meta.ordering = [priority, id], а не порядок строк в таблице.
-    active = AIProvider.objects.filter(is_active=True)
-    provider = active.filter(tags__name=role).first()
-    if provider:
-        return provider
-    provider = active.filter(role=role).first()
-    if not provider:
+    # решает AIModel.Meta.ordering = [priority, id], а не порядок строк в таблице.
+    active = AIModel.objects.filter(is_active=True)
+    ai_model = active.filter(tags__name=role).first()
+    if ai_model:
+        return ai_model
+    ai_model = active.filter(role=role).first()
+    if not ai_model:
         if role == "vision":
             # Без фолбэка: vision-вызов на текстовой модели молча не сработает.
             raise AIUnavailableError(
-                "Нет активного AI провайдера с тегом или ролью «vision» — "
-                "настройте провайдера с тегом vision в разделе Настройки → AI."
+                "Нет активной AI модели с тегом или ролью «vision» — "
+                "настройте модель с тегом vision в разделе Настройки → AI."
             )
         if role in ("cheap", "smart-alt", "genius"):
-            provider = active.filter(tags__name="smart").first() or active.filter(role="smart").first()
-        if not provider:
-            raise AIUnavailableError("Нет активного AI провайдера. Настройте в разделе Настройки → AI.")
-    return provider
+            ai_model = active.filter(tags__name="smart").first() or active.filter(role="smart").first()
+        if not ai_model:
+            raise AIUnavailableError("Нет активной AI модели. Настройте в разделе Настройки → AI.")
+    return ai_model
 
 
-def provider_type(provider):
-    return provider.dialect
+def model_dialect(ai_model):
+    return ai_model.api_key.provider.dialect
 
 
 def http_error_parts(response):
@@ -452,7 +457,7 @@ def render_messages(messages):
     return "\n\n".join(blocks)
 
 
-def _log_call(kind, provider, caller, meta, usage, error=None, task=None):
+def _log_call(kind, ai_model, caller, meta, usage, error=None, task=None):
     """Строка в журнал вызовов. Пишется и на успехе, и на каждой ошибке.
 
     Не глотает своих ошибок: если запись не прошла, вызов падает. Молча не
@@ -476,9 +481,9 @@ def _log_call(kind, provider, caller, meta, usage, error=None, task=None):
         task=task,
         app=resolve_app(task)[:50],
         caller=(caller or "")[:100],
-        provider=provider,
-        role=provider.role if provider else "",
-        model=provider.model if provider else "",
+        ai_model=ai_model,
+        role=ai_model.role if ai_model else "",
+        model=ai_model.model if ai_model else "",
         upstream=(meta.get("upstream") or "")[:100],
         proxy=proxy,
         proxy_label=str(proxy) if proxy else "",
@@ -498,14 +503,14 @@ def _log_call(kind, provider, caller, meta, usage, error=None, task=None):
     )
 
 
-def fetch_generation_cost(provider, gen_id, timeout=30):
+def fetch_generation_cost(ai_model, gen_id, timeout=30):
     """Цена одной генерации у OpenRouter по её id. Возвращает float.
 
     Единственный способ узнать цену задним числом: в теле ответа она приходит только тем
     вызовам, которые уже ушли с usage.include. Своей строки в журнал не пишет — это
     справка о вызове, а не вызов; токены за неё не платятся.
     """
-    headers = {"Authorization": f"Bearer {provider.api_key}"}
+    headers = {"Authorization": f"Bearer {ai_model.api_key.key}"}
     data = post_json(
         f"https://openrouter.ai/api/v1/generation?id={quote(gen_id)}", headers, None, timeout,
         kind="OpenRouter /generation", where=f"по id генерации «{gen_id}»", method="GET",
@@ -535,7 +540,7 @@ def fetch_generation_cost(provider, gen_id, timeout=30):
 
 def refreshable_costs():
     """Строки журнала, которым цену ещё можно добрать: цены нет, id генерации есть,
-    провайдер жив и openrouter-овский.
+    модель жива и openrouter-овская.
 
     Один и тот же набор для счётчика на странице и для самой кнопки — иначе цифра
     обещала бы одно, а кнопка делала другое.
@@ -544,8 +549,8 @@ def refreshable_costs():
 
     return (AICallLog.objects.filter(cost__isnull=True)
             .exclude(gen_id="")
-            .filter(provider__dialect=AIProvider.DIALECT_OPENROUTER)
-            .select_related("provider"))
+            .filter(ai_model__api_key__provider__dialect=Provider.DIALECT_OPENROUTER)
+            .select_related("ai_model"))
 
 
 def refresh_costs(limit=200):
@@ -562,7 +567,7 @@ def refresh_costs(limit=200):
     errors = []
     for row in refreshable_costs().order_by("-created_at")[:limit]:
         try:
-            cost = fetch_generation_cost(row.provider, row.gen_id)
+            cost = fetch_generation_cost(row.ai_model, row.gen_id)
         except AIUnavailableError as e:
             errors.append(f"строка #{row.pk} ({row.created_at:%d.%m %H:%M}, id «{row.gen_id}»): {e}")
             continue
@@ -573,14 +578,14 @@ def refresh_costs(limit=200):
 
 
 def resolve_task(key, name="", role="smart", temperature=None):
-    """Задача → (task, provider, temperature). Регистрирует задачу при первом вызове.
+    """Задача → (task, ai_model, temperature). Регистрирует задачу при первом вызове.
 
     role/temperature из кода — это дефолты регистрации, «что попросил код». Они
     обновляются в реестре при каждом вызове (чтобы точка отсчёта не устаревала), но
     НИКОГДА не затирают переопределения пользователя.
 
-    Выбор провайдера: тег задачи среди активных (по priority) → иначе роль с обычной
-    цепочкой фолбэков. Температура: из реестра → из кода → из провайдера.
+    Выбор модели: тег задачи среди активных (по priority) → иначе роль с обычной
+    цепочкой фолбэков. Температура: из реестра → из кода → из модели.
     """
     from .models import AITask
 
@@ -601,36 +606,36 @@ def resolve_task(key, name="", role="smart", temperature=None):
                 setattr(task, field, value)
             task.save(update_fields=list(stale))
 
-    provider = None
+    ai_model = None
     if task.tag:
-        provider = AIProvider.objects.filter(is_active=True, tags__name=task.tag).first()
-        if provider is None:
-            # Тег — прицел в конкретный провайдер, а не пожелание. Уйти отсюда на роль
+        ai_model = AIModel.objects.filter(is_active=True, tags__name=task.tag).first()
+        if ai_model is None:
+            # Тег — прицел в конкретную модель, а не пожелание. Уйти отсюда на роль
             # значило бы молча заменить выбранную модель другой и выставить за неё счёт:
             # в журнале это выглядит обычной успешной строкой, и заметить подмену нечем.
-            # Провайдер мог быть выключен или переименован уже после настройки задачи, а
+            # Модель могла быть выключена или переименована уже после настройки задачи, а
             # выпадашка тегов в UI собирается только по активным — строка в задаче при
             # этом остаётся и продолжает промахиваться.
-            known = sorted(AIProviderTag.objects.filter(provider__is_active=True)
+            known = sorted(AIModelTag.objects.filter(ai_model__is_active=True)
                            .values_list("name", flat=True).distinct())
             raise AIUnavailableError(
-                f"Задача «{task}» (ключ {task.key}) настроена на провайдера с тегом "
-                f"«{task.tag}», но активного провайдера с таким тегом нет. "
-                f"Теги активных провайдеров: {', '.join(known) if known else '(ни одного)'}. "
-                f"Включите нужный провайдер или смените тег задачи в разделе Настройки → "
+                f"Задача «{task}» (ключ {task.key}) настроена на модель с тегом "
+                f"«{task.tag}», но активной модели с таким тегом нет. "
+                f"Теги активных моделей: {', '.join(known) if known else '(ни одного)'}. "
+                f"Включите нужную модель или смените тег задачи в разделе Настройки → "
                 f"AI → Задачи. На роль «{task.effective_role}» вызов не уведён намеренно: "
                 f"это была бы другая модель за другие деньги без единого следа."
             )
-    if provider is None:
-        provider = get_provider(task.effective_role)
+    if ai_model is None:
+        ai_model = get_ai_model(task.effective_role)
 
     if task.temperature is not None:
         temp = task.temperature
     elif temperature is not None:
         temp = temperature
     else:
-        temp = provider.temperature
-    return task, provider, temp
+        temp = ai_model.temperature
+    return task, ai_model, temp
 
 
 def call_task(key, messages, *, name="", role="smart", temperature=None, max_tokens=16000,
@@ -641,27 +646,27 @@ def call_task(key, messages, *, name="", role="smart", temperature=None, max_tok
     `name` — человеческая подпись для UI, `role`/`temperature` — дефолты регистрации.
     Всё остальное настраивается пользователем в UI задач (путь зависит от монтирования), без правки кода.
     """
-    task, provider, temp = resolve_task(key, name=name, role=role, temperature=temperature)
-    return _run_chat(provider, messages, max_tokens=max_tokens, timeout=timeout, temperature=temp,
+    task, ai_model, temp = resolve_task(key, name=name, role=role, temperature=temperature)
+    return _run_chat(ai_model, messages, max_tokens=max_tokens, timeout=timeout, temperature=temp,
                      extra_payload=extra_payload, caller=task.name or task.key, task=task)
 
 
-def call(provider, messages, max_tokens=16000, timeout=None, temperature=None, extra_payload=None,
+def call(ai_model, messages, max_tokens=16000, timeout=None, temperature=None, extra_payload=None,
          caller=""):
     """DEPRECATED — переезжайте на call_task(). Пока работает без изменений.
 
-    Здесь провайдера и температуру выбирает вызывающий, поэтому настроить задачу из UI
+    Здесь модель и температуру выбирает вызывающий, поэтому настроить задачу из UI
     нельзя: она не проходит через реестр. Останется до переезда всех потребителей.
     """
-    return _run_chat(provider, messages, max_tokens=max_tokens, timeout=timeout,
+    return _run_chat(ai_model, messages, max_tokens=max_tokens, timeout=timeout,
                      temperature=temperature, extra_payload=extra_payload, caller=caller, task=None)
 
 
-def _run_chat(provider, messages, max_tokens, timeout, temperature, extra_payload, caller, task):
+def _run_chat(ai_model, messages, max_tokens, timeout, temperature, extra_payload, caller, task):
     """Общий ствол обеих точек входа: вызов, журнал на успехе и на ошибке, факты в usage.
 
     В usage кладутся и то, что ушло (sent), и то, чем это обслужили (model/role/tag/
-    temperature/upstream). После переезда на реестр провайдера и температуру выбирает
+    temperature/upstream). После переезда на реестр модель и температуру выбирает
     слой — значит только слой и может сказать, что фактически сработало. И на успехе,
     и в usage упавшего исключения: при ошибке эти факты нужнее всего.
     """
@@ -669,25 +674,25 @@ def _run_chat(provider, messages, max_tokens, timeout, temperature, extra_payloa
     sent = render_messages(messages)
     facts = {
         "sent": sent,
-        "model": provider.model,
-        "role": provider.role,
+        "model": ai_model.model,
+        "role": ai_model.role,
         # Чем сделан выбор: тег задачи или роль. Догадка кода тут не годится — реестр
         # меняется в рантайме.
         "tag": task.tag if task else "",
-        "temperature": temperature if temperature is not None else provider.temperature,
+        "temperature": temperature if temperature is not None else ai_model.temperature,
     }
     # Приложение-инициатор уходит в X-Title, чтобы OpenRouter в Activity разбивал траты по
     # приложениям на общем ключе. Тем же значением пишется поле app в журнале (resolve_app).
     app = resolve_app(task)
     try:
-        content, usage = _call_provider(provider, messages, max_tokens=max_tokens, timeout=timeout,
+        content, usage = _call_ai_model(ai_model, messages, max_tokens=max_tokens, timeout=timeout,
                                         temperature=temperature, extra_payload=extra_payload,
                                         meta=meta, app=app)
     except AIUnavailableError as e:
         e.usage.update(facts, upstream=meta.get("upstream", ""), retries=meta.get("retries", 0))
         # Сбой журнала виден пользователю, но не стирает ошибку AI: наружу уходят обе.
         try:
-            row = _log_call("chat", provider, caller, meta, e.usage, error=e, task=task)
+            row = _log_call("chat", ai_model, caller, meta, e.usage, error=e, task=task)
             e.usage["call_log_id"] = row.pk
         except Exception as log_err:
             raise AIUnavailableError(
@@ -701,7 +706,7 @@ def _run_chat(provider, messages, max_tokens, timeout, temperature, extra_payloa
     # call_log_id — ключ к строке журнала этого круга. Без него приложение не может собрать
     # свой ход (несколько вызовов подряд) из журнала: по caller туда попадают все ходы всех
     # сценариев сразу, а разделить их постфактум нечем.
-    usage["call_log_id"] = _log_call("chat", provider, caller, meta, usage, task=task).pk
+    usage["call_log_id"] = _log_call("chat", ai_model, caller, meta, usage, task=task).pk
     return content, usage
 
 
@@ -730,7 +735,7 @@ def _gemini_tool_calls(parts):
     return calls
 
 
-def _tool_calls_not_requested(provider, tool_calls, data, usage):
+def _tool_calls_not_requested(ai_model, tool_calls, data, usage):
     """Модель ответила вызовами инструментов, которых у неё не просили.
 
     Отдать «» такому вызывающему нельзя: он ждёт текст или JSON, получит пустоту и
@@ -749,7 +754,7 @@ def _tool_calls_not_requested(provider, tool_calls, data, usage):
         f"Модель ответила нативными вызовами инструментов ({len(tool_calls)}: {names}) "
         f"вместо текста, хотя tools в запросе не передавались "
         f"(finish_reason={usage.get('finish_reason') or '—'}). "
-        f"Модель: {provider.model} (роль «{provider.role}»). "
+        f"Модель: {ai_model.model} (роль «{ai_model.role}»). "
         f"Вызовы не потеряны — они в usage['tool_calls']. "
         f"Нужны вызовы — передайте tools в extra_payload, тогда слой вернёт их штатно, "
         f"без исключения. Не нужны — принудите модель к тексту или JSON (response_format) "
@@ -779,27 +784,28 @@ def _tokens_line(usage, max_tokens):
     return f" Токены: {', '.join(parts)}."
 
 
-def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperature=None,
+def _call_ai_model(ai_model, messages, max_tokens=16000, timeout=None, temperature=None,
                    extra_payload=None, meta=None, app=""):
-    """messages — канонический OpenAI-формат для всех провайдеров; content может
+    """messages — канонический OpenAI-формат для всех диалектов; content может
     быть строкой или списком частей ({"type": "text"} / {"type": "image_url",
     "image_url": {"url": "data:image/...;base64,..."}}). Для gemini content
     конвертируется, для openai/openrouter проходит насквозь.
     """
     meta = meta if meta is not None else {}
-    ptype = provider_type(provider)
-    effective_timeout = timeout if timeout is not None else provider.timeout
-    temperature = temperature if temperature is not None else provider.temperature
+    dialect = model_dialect(ai_model)
+    api_key = ai_model.api_key.key
+    effective_timeout = timeout if timeout is not None else ai_model.timeout
+    temperature = temperature if temperature is not None else ai_model.temperature
 
-    if ptype == "gemini":
-        headers = {"Content-Type": "application/json", "x-goog-api-key": provider.api_key}
-        url = provider.base_url.rstrip("/")
+    if dialect == Provider.DIALECT_GEMINI:
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+        url = ai_model.base_url.rstrip("/")
         if ":generateContent" not in url:
             if "v1beta" not in url and "v1" not in url:
                 url = f"{url}/v1beta"
             if url.endswith("/models"):
                 url = url[:-len("/models")]
-            url = f"{url}/models/{provider.model}:generateContent"
+            url = f"{url}/models/{ai_model.model}:generateContent"
         system_instruction = None
         contents = []
         for m in messages:
@@ -815,24 +821,24 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
         payload = {"contents": contents, "generationConfig": gen_config}
         if system_instruction:
             payload["systemInstruction"] = system_instruction
-    elif ptype == "openrouter":
+    elif dialect == Provider.DIALECT_OPENROUTER:
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {provider.api_key}",
+            "Authorization": f"Bearer {api_key}",
             "HTTP-Referer": "https://aicore.local",
             "X-Title": app,
         }
         url = "https://openrouter.ai/api/v1/chat/completions"
-        payload = {"model": provider.model, "messages": messages, "temperature": temperature}
+        payload = {"model": ai_model.model, "messages": messages, "temperature": temperature}
         if max_tokens:
             payload["max_tokens"] = max_tokens
         # Без этого OpenRouter цену в ответе не присылает вовсе. Считать её самим (прайс
         # модели × токены) нельзя: кэш промпта, BYOK и разные хостеры дают другое число.
         payload["usage"] = {"include": True}
     else:
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {provider.api_key}"}
-        url = provider.base_url
-        payload = {"model": provider.model, "messages": messages, "temperature": temperature}
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        url = ai_model.base_url
+        payload = {"model": ai_model.model, "messages": messages, "temperature": temperature}
         if max_tokens:
             payload["max_tokens"] = max_tokens
 
@@ -843,7 +849,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
     data = post_json(
         url, headers, payload, effective_timeout,
         kind="AI API",
-        where=f"от модели «{provider.model}» (роль «{provider.role}», {url})",
+        where=f"от модели «{ai_model.model}» (роль «{ai_model.role}», {url})",
         meta=meta,
     )
     logger.debug("AI raw response: %s", data)
@@ -860,7 +866,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
             meta["error_kind"] = (body_error.get("metadata") or {}).get("error_type") or "upstream_error"
 
     usage = {"elapsed_s": round(time.monotonic() - t0, 1)}
-    if ptype == "gemini":
+    if dialect == Provider.DIALECT_GEMINI:
         u = data.get("usageMetadata", {})
         if u.get("promptTokenCount") is not None:
             usage["prompt_tokens"] = u["promptTokenCount"]
@@ -875,7 +881,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
         details = u.get("completion_tokens_details") or {}
         if details.get("reasoning_tokens"):
             usage["reasoning_tokens"] = details["reasoning_tokens"]
-        if ptype == "openrouter":
+        if dialect == Provider.DIALECT_OPENROUTER:
             # Цена и id генерации — OpenRouter-специфичные поля: у openai-совместимых их
             # нет, и подставлять туда нечего. В usage кладём float, а не Decimal: usage
             # уезжает в фоновую задачу через json.dump, а Decimal не сериализуется — тред
@@ -887,11 +893,11 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
                 except (TypeError, ValueError):
                     raise AIUnavailableError(
                         f"OpenRouter вернул нечисловую стоимость: usage.cost={u['cost']!r}. "
-                        f"Блок usage целиком: {u}. Модель: {provider.model}.",
+                        f"Блок usage целиком: {u}. Модель: {ai_model.model}.",
                         usage=usage,
                     )
 
-    if ptype == "gemini":
+    if dialect == Provider.DIALECT_GEMINI:
         try:
             fr = data["candidates"][0].get("finishReason")
             if fr:
@@ -911,7 +917,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
     # диалектов, так что признак один на все ветки.
     tools_requested = bool((extra_payload or {}).get("tools"))
 
-    if ptype == "gemini":
+    if dialect == Provider.DIALECT_GEMINI:
         try:
             parts = data["candidates"][0]["content"]["parts"]
         except (KeyError, IndexError, TypeError):
@@ -920,7 +926,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
             raise AIUnavailableError(
                 f"Модель обрубила ответ по лимиту токенов (finishReason=MAX_TOKENS): "
                 f"сгенерировано {usage.get('completion_tokens', '?')} токенов, ответ неполный. "
-                f"Модель: {provider.model} (роль «{provider.role}»).",
+                f"Модель: {ai_model.model} (роль «{ai_model.role}»).",
                 usage=usage,
             )
 
@@ -934,7 +940,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
             return text or "", usage
         if text is None:
             if tool_calls:
-                raise _tool_calls_not_requested(provider, tool_calls, data, usage)
+                raise _tool_calls_not_requested(ai_model, tool_calls, data, usage)
             raise AIUnavailableError(f"Неожиданный ответ Gemini: {data}", usage=usage)
         return text, usage
 
@@ -961,7 +967,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
         if tools_requested:
             return content or "", usage
         if content is None:
-            raise _tool_calls_not_requested(provider, tool_calls, data, usage)
+            raise _tool_calls_not_requested(ai_model, tool_calls, data, usage)
 
     if content is None:
         choice = data["choices"][0]
@@ -976,7 +982,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
             usage_hint = _tokens_line(usage, max_tokens)
             raise AIUnavailableError(
                 f"Модель исчерпала лимит токенов (finish_reason=length) и не вернула ответ."
-                f"{hint}{usage_hint} Модель: {provider.model}.",
+                f"{hint}{usage_hint} Модель: {ai_model.model}.",
                 usage=usage,
             )
         detail_parts = []
@@ -992,7 +998,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
             raw = str(data)
         raise AIUnavailableError(
             f"AI вернул content=null. {' | '.join(detail_parts) or 'без деталей'}. "
-            f"Модель: {provider.model} (роль «{provider.role}»).\n\n"
+            f"Модель: {ai_model.model} (роль «{ai_model.role}»).\n\n"
             f"Сырой ответ API:\n{raw[:3000]}",
             usage=usage,
         )
@@ -1001,7 +1007,7 @@ def _call_provider(provider, messages, max_tokens=16000, timeout=None, temperatu
         raise AIUnavailableError(
             f"Модель обрубила ответ по лимиту токенов (finish_reason=length), ответ неполный."
             f"{_tokens_line(usage, max_tokens)} "
-            f"Модель: {provider.model} (роль «{provider.role}»).",
+            f"Модель: {ai_model.model} (роль «{ai_model.role}»).",
             usage=usage,
         )
 
@@ -1122,7 +1128,7 @@ def get_embeddings_batch(texts, batch_size=100, caller=""):
     Бьёт на батчи по batch_size если нужно.
     Каждый батч — отдельная строка в журнале вызовов (AICallLog).
     """
-    # Приложение спрашивается до провайдера и до сети: неотносимый вызов не делается
+    # Приложение спрашивается до модели и до сети: неотносимый вызов не делается
     # вовсе. Исключение здесь не бросается — контракт функции обещает пару, а не raise,
     # и вызывающие ловить его не готовы.
     try:
@@ -1130,14 +1136,14 @@ def get_embeddings_batch(texts, batch_size=100, caller=""):
     except AIUnavailableError as e:
         return [None] * len(texts), str(e)
 
-    provider = AIProvider.objects.filter(is_active=True, role="embed").first()
-    if not provider:
-        return [None] * len(texts), "Нет активного провайдера с ролью «эмбеддинг»"
+    ai_model = AIModel.objects.filter(is_active=True, role="embed").first()
+    if not ai_model:
+        return [None] * len(texts), "Нет активной AI модели с ролью «эмбеддинг»"
 
-    base = provider.base_url.rstrip("/")
+    base = ai_model.base_url.rstrip("/")
     url = base if base.endswith("/embeddings") else base + "/embeddings"
-    headers = {"Authorization": f"Bearer {provider.api_key}", "Content-Type": "application/json"}
-    where = f"от модели «{provider.model}» ({url})"
+    headers = {"Authorization": f"Bearer {ai_model.api_key.key}", "Content-Type": "application/json"}
+    where = f"от модели «{ai_model.model}» ({url})"
 
     result = [None] * len(texts)
     for start in range(0, len(texts), batch_size):
@@ -1145,17 +1151,17 @@ def get_embeddings_batch(texts, batch_size=100, caller=""):
         meta = {}
         try:
             body = post_json(
-                url, headers, {"model": provider.model, "input": chunk}, 60,
+                url, headers, {"model": ai_model.model, "input": chunk}, 60,
                 kind="embedding API", where=where, meta=meta,
             )
         except AIUnavailableError as e:
             try:
-                _log_call("embedding", provider, caller, meta, {}, error=e)
+                _log_call("embedding", ai_model, caller, meta, {}, error=e)
             except Exception as log_err:
                 return result, f"{e}\n\nКроме того, не удалось записать журнал вызовов (AICallLog): {log_err}"
             return result, str(e)
         usage = body.get("usage") or {}
-        _log_call("embedding", provider, caller, meta,
+        _log_call("embedding", ai_model, caller, meta,
                   {"prompt_tokens": usage.get("prompt_tokens")})
         items = body.get("data", [])
         if not items:

@@ -5,7 +5,7 @@
 <div style="max-width:640px">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h5 class="mb-0">{{ title }}</h5>
-    <a href="{% url 'aicore:providers' %}" class="btn btn-sm btn-outline-secondary">Отмена</a>
+    <a href="{% url 'aicore:ai_models' %}" class="btn btn-sm btn-outline-secondary">Отмена</a>
   </div>
 
   <form method="post">
@@ -47,6 +47,11 @@
         <div class="mb-3">
           <label class="form-label fw-semibold" for="{{ form.api_key.id_for_label }}">{{ form.api_key.label }}</label>
           {{ form.api_key }}
+          <div class="form-text">
+            Диалект (формат запроса) берётся у провайдера выбранного ключа — отдельно
+            здесь не выбирается. Нужного ключа нет в списке — заведите его на странице
+            <a href="{% url 'aicore:api_keys' %}">Ключи</a>.
+          </div>
           {% for e in form.api_key.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
         </div>
         <div class="mb-3">
@@ -58,19 +63,6 @@
           <label class="form-label fw-semibold" for="{{ form.base_url.id_for_label }}">{{ form.base_url.label }}</label>
           {{ form.base_url }}
           {% for e in form.base_url.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
-        </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold" for="{{ form.dialect.id_for_label }}">{{ form.dialect.label }}</label>
-          {{ form.dialect }}
-          <div class="form-text">
-            Чем определяется формат запроса. Раньше выводился из домена, и всё неизвестное
-            молча считалось OpenAI-совместимым — теперь выбирается явно.
-            <strong>OpenAI-совместимый</strong> — POST уходит ровно на указанный endpoint,
-            путь не достраивается (сюда же Anthropic, TokenRouter, Groq, DeepSeek и прочие).
-            <strong>Gemini</strong> — своё тело запроса, путь и модель дописываются к базе.
-            <strong>OpenRouter</strong> — свои заголовки, адрес запроса зашит в коде.
-          </div>
-          {% for e in form.dialect.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
         </div>
         <div class="mb-3">
           <label class="form-label fw-semibold" for="{{ form.role.id_for_label }}">{{ form.role.label }}</label>
@@ -99,7 +91,7 @@
           <label class="form-label fw-semibold" for="{{ form.priority.id_for_label }}">{{ form.priority.label }}</label>
           {{ form.priority }}
           <div class="form-text">
-            Когда задача не указывает тег, провайдера выбирают по роли — и побеждает
+            Когда задача не указывает тег, модель выбирают по роли — и побеждает
             <strong>меньший приоритет</strong> среди активных. Значения уникальны: при равных
             победитель определялся бы порядком добавления, а это чёрный ящик.
           </div>
@@ -128,14 +120,14 @@
     <div class="card mb-3">
       <div class="card-header fw-semibold">Теги</div>
       <div class="card-body">
-        <div class="form-text mb-2">Используются для выбора провайдера в приложениях. Один провайдер — несколько тегов.</div>
+        <div class="form-text mb-2">Используются для выбора модели в приложениях. Одна модель — несколько тегов.</div>
         {{ tag_formset.management_form }}
         {% for tf in tag_formset %}
           {% comment %}
-            id тега и FK на провайдера. Django требует id у каждой существующей строки
+            id тега и FK на модель. Django требует id у каждой существующей строки
             формсета (в _construct_form он помечается required); без этих input'ов POST
             приходит без id, формсет валится и НИЧЕГО не сохраняется — включая саму форму
-            провайдера, потому что вью сохраняет их только вместе.
+            модели, потому что вью сохраняет их только вместе.
           {% endcomment %}
           {% for h in tf.hidden_fields %}{{ h }}{% endfor %}
           <div class="d-flex align-items-center gap-2 mb-2">

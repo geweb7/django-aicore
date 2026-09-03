@@ -1,0 +1,180 @@
+{% extends "aicore/base.html" %}
+{% block title %}AI модели{% endblock %}
+
+{% block extra_css %}
+<style>
+  .prov-table th a { color: inherit; text-decoration: none; white-space: nowrap; }
+  .prov-table th a:hover { text-decoration: underline; }
+  .prov-table td { vertical-align: top; }
+  .prov-off td:not(.prov-actions) { opacity: .5; }
+  .prov-url { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prov-price { max-width: 300px; word-break: break-word; }
+  .prov-cand-btn { font-size: inherit; line-height: inherit; vertical-align: baseline; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div>
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-cpu me-2 text-muted"></i>AI модели</h4>
+    <div class="d-flex gap-2">
+      <form method="post" action="{% url 'aicore:ai_models_refresh_pricing' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Обновить каталог OpenRouter — цены + интеллект (кэш 6ч)">
+          <i class="bi bi-arrow-clockwise"></i> Обновить каталог
+        </button>
+      </form>
+      <a href="{% url 'aicore:ai_model_add' %}" class="btn btn-sm btn-dark">
+        <i class="bi bi-plus"></i> Добавить
+      </a>
+    </div>
+  </div>
+
+  {% if ai_models %}
+    <div class="table-responsive bg-white border rounded">
+      <table class="table table-sm table-hover align-middle mb-0 prov-table">
+        <thead class="table-light">
+          <tr>
+            <th style="width:1%">
+              <a href="?sort=status&dir={% if sort == 'status' %}{{ next_dir }}{% else %}asc{% endif %}">
+                Статус{% if sort == 'status' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th style="width:1%">
+              <a href="?sort=role&dir={% if sort == 'role' %}{{ next_dir }}{% else %}asc{% endif %}">
+                Роль{% if sort == 'role' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th style="width:1%" class="text-center">
+              <a href="?sort=priority&dir={% if sort == 'priority' %}{{ next_dir }}{% else %}asc{% endif %}"
+                 title="Приоритет: при выборе по роли побеждает меньший">
+                Приор.{% if sort == 'priority' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th style="width:1%">
+              <a href="?sort=provider&dir={% if sort == 'provider' %}{{ next_dir }}{% else %}asc{% endif %}"
+                 title="Провайдер выбранного ключа — им же определяется диалект (формат запроса)">
+                Провайдер{% if sort == 'provider' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th>
+              <a href="?sort=model&dir={% if sort == 'model' %}{{ next_dir }}{% else %}asc{% endif %}">
+                Модель{% if sort == 'model' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th title="Цена из OpenRouter /api/v1/models ($ за 1M токенов), кэш 6ч">Цена&nbsp;OpenRouter</th>
+            <th style="width:1%">
+              <a href="?sort=tags&dir={% if sort == 'tags' %}{{ next_dir }}{% else %}asc{% endif %}">
+                Теги{% if sort == 'tags' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
+              </a>
+            </th>
+            <th style="width:1%"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in ai_models %}
+            <tr class="{% if not p.is_active %}prov-off{% endif %}">
+              <td>
+                {% if p.is_active %}
+                  <span class="badge bg-success">активный</span>
+                {% else %}
+                  <span class="badge bg-light text-muted border">выключен</span>
+                {% endif %}
+              </td>
+              <td><span class="badge bg-secondary">{{ p.get_role_display }}</span></td>
+              <td class="text-center text-muted">{{ p.priority }}</td>
+              <td>
+                <div>{{ p.api_key.provider.name }}</div>
+                <div class="text-muted small font-monospace">{{ p.api_key.provider.dialect }}</div>
+                <div class="text-muted small" title="{{ p.api_key.key }}">ключ: {{ p.api_key.name }}</div>
+              </td>
+              <td>
+                <div class="fw-semibold">
+                  {{ p.model }}
+                  {% for role_label in p.default_roles %}
+                    <span class="badge bg-primary ms-1" title="Выбор по роли без тега вернёт эту модель">
+                      <i class="bi bi-star-fill"></i> по умолчанию: {{ role_label }}
+                    </span>
+                  {% endfor %}
+                </div>
+                {% if p.description %}
+                  <div class="text-muted small">{{ p.description }}</div>
+                {% endif %}
+                <div class="text-muted small font-monospace text-break" style="font-size:0.75em" title="{{ p.base_url }}">{{ p.base_url }}</div>
+              </td>
+              <td class="small prov-price">
+                {% if p.api_key.provider.dialect == "openrouter" %}
+                  {% if p.or_price %}
+                    <div class="text-nowrap"><span title="входные токены">{{ p.or_price }}/M&nbsp;in</span> · <span title="выходные токены">{{ p.or_price_out }}/M&nbsp;out</span></div>
+                    {% if p.or_resolved_id and p.or_resolved_id != p.model %}
+                      <div class="text-muted small">каталог: <span class="font-monospace">{{ p.or_resolved_id }}</span></div>
+                    {% endif %}
+                    {% if p.or_intelligence is not None %}
+                      <div class="text-muted" title="Artificial Analysis intelligence_index из benchmarks.artificial_analysis (openrouter.ai/api/v1/models)">интеллект {{ p.or_intelligence }} · класс {{ p.or_tier_label }}</div>
+                    {% else %}
+                      <div class="text-muted" title="У модели нет benchmarks.artificial_analysis.intelligence_index — класс не определён, в сравнение не берём">интеллект — нет оценки</div>
+                    {% endif %}
+                    {% if p.or_candidates %}
+                      <div class="mt-1">в классе {{ p.or_tier_label }} (топ-5 по 🧠, клик — замена):
+                        {% for c in p.or_candidates %}
+                          <div>— <form method="post" action="{% url 'aicore:ai_model_switch_model' p.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="new_model" value="{{ c.id }}"><button type="submit" class="btn btn-link btn-sm p-0 prov-cand-btn font-monospace text-decoration-underline" title="Заменить {{ p.model }} → {{ c.id }} ({{ c.saving|floatformat:0 }}%)">{{ c.id }}</button></form> <span class="text-muted">🧠{{ c.intelligence }} {{ c.prompt_str }}/M·{{ c.completion_str }}/M {% if c.saving < 0 %}−{{ c.saving|floatformat:0|slice:"1:" }}%{% elif c.saving > 0 %}+{{ c.saving|floatformat:0 }}%{% else %}—{% endif %}</span></div>
+                        {% endfor %}
+                      </div>
+                    {% elif p.or_intelligence is not None %}
+                      <div class="text-muted mt-1">в классе нет кандидатов</div>
+                    {% endif %}
+                  {% else %}
+                    {% if p.or_not_found %}
+                      <div class="text-danger small">нет в каталоге <span class="font-monospace">{{ p.model }}</span></div>
+                      <div class="text-muted small" title="Проверь id: формат author/slug как в openrouter.ai/models, напр. anthropic/claude-fable-5, а не claude-fable-5">проверь id (author/slug) · кэш — «Обновить каталог»</div>
+                    {% else %}
+                      <span class="text-muted">нет данных</span> <span class="text-muted" title="Кэш пуст — нажми «Обновить каталог»">ⓘ</span>
+                    {% endif %}
+                  {% endif %}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% for tag in p.tags.all %}
+                  <span class="badge bg-dark">{{ tag.name }}</span>
+                {% empty %}
+                  <span class="text-muted">—</span>
+                {% endfor %}
+              </td>
+              <td class="prov-actions">
+                <div class="d-flex gap-1 justify-content-end">
+                  <form method="post" action="{% url 'aicore:ai_model_copy' p.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="Копировать">
+                      <i class="bi bi-copy"></i>
+                    </button>
+                  </form>
+                  <a href="{% url 'aicore:ai_model_edit' p.pk %}" class="btn btn-sm btn-outline-secondary" title="Редактировать">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                  <form method="post" action="{% url 'aicore:ai_model_delete' p.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Удалить"
+                            onclick="return confirm('Удалить модель {{ p.model }}?')">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="alert alert-light border small mt-2 mb-0">
+      <b>Где цена:</b> «Цена OpenRouter» — $ за 1M (in/out) из <code>openrouter.ai/api/v1/models</code>, кэш 6ч, «Обновить каталог» форсит. Интеллект — <code>benchmarks.artificial_analysis.intelligence_index</code> (160/420, остальные — «нет оценки»). Класс — бакет 10. Кандидаты — топ-5 того же класса по 🧠, с ценой и ±% к текущей, клик по имени — замена (POST). Endpoint теперь под моделью, таблица — <code>table-responsive</code> Bootstrap 5.
+    </div>
+  {% else %}
+    <p class="text-muted">AI моделей нет. Сначала заведите провайдера и ключ на страницах «Провайдеры» / «Ключи», затем добавьте модель.</p>
+  {% endif %}
+
+</div>
+{% endblock %}

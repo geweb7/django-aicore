@@ -1,176 +1,83 @@
 {% extends "aicore/base.html" %}
-{% block title %}AI провайдеры{% endblock %}
-
-{% block extra_css %}
-<style>
-  .prov-table th a { color: inherit; text-decoration: none; white-space: nowrap; }
-  .prov-table th a:hover { text-decoration: underline; }
-  .prov-table td { vertical-align: top; }
-  .prov-off td:not(.prov-actions) { opacity: .5; }
-  .prov-url { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .prov-price { max-width: 300px; word-break: break-word; }
-  .prov-cand-btn { font-size: inherit; line-height: inherit; vertical-align: baseline; }
-</style>
-{% endblock %}
+{% block title %}Провайдеры{% endblock %}
 
 {% block content %}
-<div>
 
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0"><i class="bi bi-cpu me-2 text-muted"></i>AI провайдеры</h4>
-    <div class="d-flex gap-2">
-      <form method="post" action="{% url 'aicore:providers_refresh_pricing' %}" class="d-inline">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Обновить каталог OpenRouter — цены + интеллект (кэш 6ч)">
-          <i class="bi bi-arrow-clockwise"></i> Обновить каталог
-        </button>
-      </form>
-      <a href="{% url 'aicore:provider_add' %}" class="btn btn-sm btn-dark">
-        <i class="bi bi-plus"></i> Добавить
-      </a>
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-building me-2 text-muted"></i>Провайдеры</h4>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-4">
+
+      <p class="text-muted small">
+        Провайдер — кто выпустил ключ и как с ним разговаривать (OpenAI, OpenRouter, Gemini…).
+        Диалект (формат запроса) выбирается здесь, один раз на провайдера — ключи и AI модели
+        его больше не выбирают сами, он приходит вместе с выбранным ключом.
+      </p>
+
+      <div class="card">
+        <div class="card-header fw-semibold">
+          <i class="bi bi-plus me-1"></i>Добавить провайдера
+        </div>
+        <div class="card-body">
+          <form method="post" action="{% url 'aicore:provider_add' %}">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ form.name.label }}</label>
+              {{ form.name }}
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ form.dialect.label }}</label>
+              {{ form.dialect }}
+            </div>
+            <button type="submit" class="btn btn-sm btn-dark">Добавить</button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="col-lg-8">
+
+      <div class="fw-semibold mb-2">{{ providers|length }} провайдеров</div>
+
+      {% for provider in providers %}
+        <div class="card mb-3">
+          <div class="card-body">
+            <form method="post" action="{% url 'aicore:provider_save' provider.pk %}" class="row g-2 align-items-end">
+              {% csrf_token %}
+              <div class="col-sm-5">
+                <label class="form-label small mb-1">Название</label>
+                <input type="text" name="name" value="{{ provider.name }}" class="form-control form-control-sm">
+              </div>
+              <div class="col-sm-4">
+                <label class="form-label small mb-1">Диалект</label>
+                <select name="dialect" class="form-select form-select-sm">
+                  {% for value, label in provider.DIALECT_CHOICES %}
+                    <option value="{{ value }}" {% if provider.dialect == value %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-sm-3 d-flex gap-1">
+                <button type="submit" class="btn btn-sm btn-dark flex-grow-1">Сохранить</button>
+                <button type="submit" class="btn btn-sm btn-outline-danger"
+                        formaction="{% url 'aicore:provider_delete' provider.pk %}"
+                        onclick="return confirm('Удалить провайдера «{{ provider.name }}»?')">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </form>
+            <div class="text-muted small mt-2">
+              ключей: {{ provider.api_keys.count }}
+            </div>
+          </div>
+        </div>
+      {% empty %}
+        <p class="text-muted">Провайдеров нет — добавьте первого слева (например, OpenRouter или Anthropic).</p>
+      {% endfor %}
+
     </div>
   </div>
 
-  {% if providers %}
-    <div class="table-responsive bg-white border rounded">
-      <table class="table table-sm table-hover align-middle mb-0 prov-table">
-        <thead class="table-light">
-          <tr>
-            <th style="width:1%">
-              <a href="?sort=status&dir={% if sort == 'status' %}{{ next_dir }}{% else %}asc{% endif %}">
-                Статус{% if sort == 'status' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
-              </a>
-            </th>
-            <th style="width:1%">
-              <a href="?sort=role&dir={% if sort == 'role' %}{{ next_dir }}{% else %}asc{% endif %}">
-                Роль{% if sort == 'role' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
-              </a>
-            </th>
-            <th style="width:1%" class="text-center">
-              <a href="?sort=priority&dir={% if sort == 'priority' %}{{ next_dir }}{% else %}asc{% endif %}"
-                 title="Приоритет: при выборе по роли побеждает меньший">
-                Приор.{% if sort == 'priority' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
-              </a>
-            </th>
-            <th style="width:1%">
-              <a href="?sort=dialect&dir={% if sort == 'dialect' %}{{ next_dir }}{% else %}asc{% endif %}"
-                 title="Как формируется запрос: формат тела, заголовки, достраивается ли путь">
-                Диалект{% if sort == 'dialect' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
-              </a>
-            </th>
-            <th>
-              <a href="?sort=model&dir={% if sort == 'model' %}{{ next_dir }}{% else %}asc{% endif %}">
-                Модель{% if sort == 'model' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
-              </a>
-            </th>
-            <th title="Цена из OpenRouter /api/v1/models ($ за 1M токенов), кэш 6ч">Цена&nbsp;OpenRouter</th>
-            <th style="width:1%">
-              <a href="?sort=tags&dir={% if sort == 'tags' %}{{ next_dir }}{% else %}asc{% endif %}">
-                Теги{% if sort == 'tags' %} <i class="bi bi-caret-{% if dir == 'asc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}
-              </a>
-            </th>
-            <th style="width:1%"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in providers %}
-            <tr class="{% if not p.is_active %}prov-off{% endif %}">
-              <td>
-                {% if p.is_active %}
-                  <span class="badge bg-success">активный</span>
-                {% else %}
-                  <span class="badge bg-light text-muted border">выключен</span>
-                {% endif %}
-              </td>
-              <td><span class="badge bg-secondary">{{ p.get_role_display }}</span></td>
-              <td class="text-center text-muted">{{ p.priority }}</td>
-              <td><span class="text-muted small font-monospace">{{ p.dialect }}</span></td>
-              <td>
-                <div class="fw-semibold">
-                  {{ p.model }}
-                  {% for role_label in p.default_roles %}
-                    <span class="badge bg-primary ms-1" title="Выбор по роли без тега вернёт этого провайдера">
-                      <i class="bi bi-star-fill"></i> по умолчанию: {{ role_label }}
-                    </span>
-                  {% endfor %}
-                </div>
-                {% if p.description %}
-                  <div class="text-muted small">{{ p.description }}</div>
-                {% endif %}
-                <div class="text-muted small font-monospace text-break" style="font-size:0.75em" title="{{ p.base_url }}">{{ p.base_url }}</div>
-              </td>
-              <td class="small prov-price">
-                {% if p.dialect == "openrouter" %}
-                  {% if p.or_price %}
-                    <div class="text-nowrap"><span title="входные токены">{{ p.or_price }}/M&nbsp;in</span> · <span title="выходные токены">{{ p.or_price_out }}/M&nbsp;out</span></div>
-                    {% if p.or_resolved_id and p.or_resolved_id != p.model %}
-                      <div class="text-muted small">каталог: <span class="font-monospace">{{ p.or_resolved_id }}</span></div>
-                    {% endif %}
-                    {% if p.or_intelligence is not None %}
-                      <div class="text-muted" title="Artificial Analysis intelligence_index из benchmarks.artificial_analysis (openrouter.ai/api/v1/models)">интеллект {{ p.or_intelligence }} · класс {{ p.or_tier_label }}</div>
-                    {% else %}
-                      <div class="text-muted" title="У модели нет benchmarks.artificial_analysis.intelligence_index — класс не определён, в сравнение не берём">интеллект — нет оценки</div>
-                    {% endif %}
-                    {% if p.or_candidates %}
-                      <div class="mt-1">в классе {{ p.or_tier_label }} (топ-5 по 🧠, клик — замена):
-                        {% for c in p.or_candidates %}
-                          <div>— <form method="post" action="{% url 'aicore:provider_switch_model' p.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="new_model" value="{{ c.id }}"><button type="submit" class="btn btn-link btn-sm p-0 prov-cand-btn font-monospace text-decoration-underline" title="Заменить {{ p.model }} → {{ c.id }} ({{ c.saving|floatformat:0 }}%)">{{ c.id }}</button></form> <span class="text-muted">🧠{{ c.intelligence }} {{ c.prompt_str }}/M·{{ c.completion_str }}/M {% if c.saving < 0 %}−{{ c.saving|floatformat:0|slice:"1:" }}%{% elif c.saving > 0 %}+{{ c.saving|floatformat:0 }}%{% else %}—{% endif %}</span></div>
-                        {% endfor %}
-                      </div>
-                    {% elif p.or_intelligence is not None %}
-                      <div class="text-muted mt-1">в классе нет кандидатов</div>
-                    {% endif %}
-                  {% else %}
-                    {% if p.or_not_found %}
-                      <div class="text-danger small">нет в каталоге <span class="font-monospace">{{ p.model }}</span></div>
-                      <div class="text-muted small" title="Проверь id: формат author/slug как в openrouter.ai/models, напр. anthropic/claude-fable-5, а не claude-fable-5">проверь id (author/slug) · кэш — «Обновить каталог»</div>
-                    {% else %}
-                      <span class="text-muted">нет данных</span> <span class="text-muted" title="Кэш пуст — нажми «Обновить каталог»">ⓘ</span>
-                    {% endif %}
-                  {% endif %}
-                {% else %}
-                  <span class="text-muted">—</span>
-                {% endif %}
-              </td>
-              <td>
-                {% for tag in p.tags.all %}
-                  <span class="badge bg-dark">{{ tag.name }}</span>
-                {% empty %}
-                  <span class="text-muted">—</span>
-                {% endfor %}
-              </td>
-              <td class="prov-actions">
-                <div class="d-flex gap-1 justify-content-end">
-                  <form method="post" action="{% url 'aicore:provider_copy' p.pk %}" class="d-inline">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="Копировать">
-                      <i class="bi bi-copy"></i>
-                    </button>
-                  </form>
-                  <a href="{% url 'aicore:provider_edit' p.pk %}" class="btn btn-sm btn-outline-secondary" title="Редактировать">
-                    <i class="bi bi-pencil"></i>
-                  </a>
-                  <form method="post" action="{% url 'aicore:provider_delete' p.pk %}" class="d-inline">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Удалить"
-                            onclick="return confirm('Удалить провайдер {{ p.model }}?')">
-                      <i class="bi bi-trash"></i>
-                    </button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="alert alert-light border small mt-2 mb-0">
-      <b>Где цена:</b> «Цена OpenRouter» — $ за 1M (in/out) из <code>openrouter.ai/api/v1/models</code>, кэш 6ч, «Обновить каталог» форсит. Интеллект — <code>benchmarks.artificial_analysis.intelligence_index</code> (160/420, остальные — «нет оценки»). Класс — бакет 10. Кандидаты — топ-5 того же класса по 🧠, с ценой и ±% к текущей, клик по имени — замена (POST). Endpoint теперь под моделью, таблица — <code>table-responsive</code> Bootstrap 5.
-    </div>
-  {% else %}
-    <p class="text-muted">Провайдеров нет. Добавьте провайдера (например, OpenRouter или Anthropic).</p>
-  {% endif %}
-
-</div>
 {% endblock %}

@@ -1,21 +1,34 @@
 from django.contrib import admin
 
-from .models import AIProvider, AIProviderTag, AITask, ProxySettings
+from .models import AIApiKey, AIModel, AIModelTag, AITask, Provider, ProxySettings
 
 # Журнал вызовов в админке не регистрируется намеренно: он живёт своим экраном
-# Страница журнала (путь зависит от монтирования) — рядом с провайдерами, задачами и прокси, которыми по нему и правят.
+# Страница журнала (путь зависит от монтирования) — рядом с моделями, задачами и прокси, которыми по нему и правят.
 
 
-class AIProviderTagInline(admin.TabularInline):
-    model = AIProviderTag
+class AIModelTagInline(admin.TabularInline):
+    model = AIModelTag
     extra = 1
 
 
-@admin.register(AIProvider)
-class AIProviderAdmin(admin.ModelAdmin):
+@admin.register(Provider)
+class ProviderAdmin(admin.ModelAdmin):
+    list_display = ["name", "dialect"]
+    list_filter = ["dialect"]
+
+
+@admin.register(AIApiKey)
+class AIApiKeyAdmin(admin.ModelAdmin):
+    list_display = ["name", "provider", "created_at"]
+    list_filter = ["provider"]
+    search_fields = ["name"]
+
+
+@admin.register(AIModel)
+class AIModelAdmin(admin.ModelAdmin):
     list_display = ["model", "role", "priority", "is_active", "description"]
     list_filter = ["is_active", "role"]
-    inlines = [AIProviderTagInline]
+    inlines = [AIModelTagInline]
 
 
 @admin.register(ProxySettings)

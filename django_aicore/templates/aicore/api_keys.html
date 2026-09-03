@@ -1,0 +1,95 @@
+{% extends "aicore/base.html" %}
+{% block title %}AI ключи{% endblock %}
+
+{% block content %}
+
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h4 class="mb-0"><i class="bi bi-key me-2 text-muted"></i>AI ключи</h4>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-4">
+
+      <p class="text-muted small">
+        Ключ привязан к провайдеру и может использоваться несколькими AI моделями сразу
+        (одна подписка — несколько ролей/приоритетов). Название можно оставить пустым —
+        назовём по маске ключа (первые 12 и последние 3 символа).
+      </p>
+
+      <div class="card">
+        <div class="card-header fw-semibold">
+          <i class="bi bi-plus me-1"></i>Добавить ключ
+        </div>
+        <div class="card-body">
+          <form method="post" action="{% url 'aicore:api_key_add' %}">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ form.provider.label }}</label>
+              {{ form.provider }}
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ form.key.label }}</label>
+              {{ form.key }}
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ form.name.label }}</label>
+              {{ form.name }}
+            </div>
+            <button type="submit" class="btn btn-sm btn-dark">Добавить</button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="col-lg-8">
+
+      <div class="fw-semibold mb-2">{{ api_keys|length }} ключей</div>
+
+      {% for api_key in api_keys %}
+        <div class="card mb-3">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">{{ api_key.name }}</span>
+            <span class="text-muted small">добавлен {{ api_key.created_at|date:"d.m.Y H:i" }}</span>
+          </div>
+          <div class="card-body">
+            <form method="post" action="{% url 'aicore:api_key_save' api_key.pk %}" class="row g-2 align-items-end">
+              {% csrf_token %}
+              <div class="col-sm-3">
+                <label class="form-label small mb-1">Провайдер</label>
+                <select name="provider" class="form-select form-select-sm">
+                  {% for p in providers %}
+                    <option value="{{ p.pk }}" {% if api_key.provider_id == p.pk %}selected{% endif %}>{{ p.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-sm-4">
+                <label class="form-label small mb-1">Ключ</label>
+                <input type="password" name="key" value="{{ api_key.key }}" class="form-control form-control-sm font-monospace">
+              </div>
+              <div class="col-sm-3">
+                <label class="form-label small mb-1">Название</label>
+                <input type="text" name="name" value="{{ api_key.name }}" class="form-control form-control-sm">
+              </div>
+              <div class="col-sm-2 d-flex gap-1">
+                <button type="submit" class="btn btn-sm btn-dark flex-grow-1">Сохранить</button>
+                <button type="submit" class="btn btn-sm btn-outline-danger"
+                        formaction="{% url 'aicore:api_key_delete' api_key.pk %}"
+                        onclick="return confirm('Удалить ключ «{{ api_key.name }}»?')">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </form>
+            <div class="text-muted small mt-2">
+              используется моделями: {{ api_key.ai_models.count }}
+            </div>
+          </div>
+        </div>
+      {% empty %}
+        <p class="text-muted">Ключей нет — добавьте первый слева.</p>
+      {% endfor %}
+
+    </div>
+  </div>
+
+{% endblock %}
