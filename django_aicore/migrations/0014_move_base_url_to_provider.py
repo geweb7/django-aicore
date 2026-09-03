@@ -12,6 +12,11 @@
 # честно ссылались на разные endpoint (например, отдельный адрес под /embeddings) — такое
 # значение не отбрасывается, а уезжает на новый Provider с тем же диалектом и копией
 # ключа (тот же ключ, другой endpoint), и видно потом на странице «Провайдеры».
+#
+# Только добавление колонки + данные — снятие старой колонки с AIModel в отдельной 0015.
+# В одной транзакции с DML на aicore_aimodel (RunPython делает UPDATE через m.save())
+# Postgres не даёт следом ALTER TABLE ту же таблицу: «pending trigger events». Развести
+# по двум миграциям — значит развести по двум транзакциям, это и снимает конфликт.
 
 from collections import Counter
 from urllib.parse import urlparse
@@ -71,13 +76,4 @@ class Migration(migrations.Migration):
             field=models.URLField(blank=True, default='', verbose_name='API endpoint'),
         ),
         migrations.RunPython(move_base_url_to_provider, migrations.RunPython.noop),
-        migrations.RemoveField(
-            model_name='aimodel',
-            name='base_url',
-        ),
-        migrations.AlterField(
-            model_name='provider',
-            name='base_url',
-            field=models.URLField(verbose_name='API endpoint'),
-        ),
     ]
