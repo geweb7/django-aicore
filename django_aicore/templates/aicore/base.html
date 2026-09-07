@@ -40,6 +40,10 @@
         <a class="nav-link {% if 'calls' in request.resolver_match.url_name %}active{% endif %}"
            href="{% url 'aicore:calls' %}">Журнал</a>
       </li>
+      <li class="nav-item">
+        <a class="nav-link {% if request.resolver_match.url_name == 'help' %}active{% endif %}"
+           href="{% url 'aicore:help' %}">Помощь</a>
+      </li>
     </ul>
   </div>
 </nav>

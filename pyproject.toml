@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-aicore"
-version = "0.2.3"
+version = "0.2.4"
 description = "Reusable Django app: AI models by role, providers/keys, model calls, proxy pool, background tasks and call log UI"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -41,4 +41,4 @@ Repository = "https://github.com/geweb7/django-aicore"
 include = ["django_aicore", "django_aicore.migrations"]
 
 [tool.setuptools.package-data]
-django_aicore = ["templates/**/*", "static/**/*"]
+django_aicore = ["templates/**/*", "static/**/*", "README.md"]

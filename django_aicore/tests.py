@@ -206,3 +206,35 @@ class CallsViewTests(TestCase):
         r = self.client.get(self.url(**{"from": "позавчера"}))
         self.assertEqual(r.context["totals"]["calls"], 3)
         self.assertTrue([m for m in r.context["messages"] if "не дата" in str(m)])
+
+
+class HelpContractTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user("helper", password="x")
+        self.client.force_login(self.user)
+
+    def test_help_page_shows_bundled_contract_of_installed_version(self):
+        from django_aicore import __version__, get_contract_text
+
+        r = self.client.get(reverse("aicore:help"))
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.context["aicore_version"], __version__)
+        # Страница показывает ровно bundled файл, а не внешний текст.
+        self.assertEqual(r.context["contract"], get_contract_text())
+        self.assertContains(r, "call_task")
+        self.assertContains(r, __version__)
+
+    def test_help_requires_login(self):
+        self.client.logout()
+        r = self.client.get(reverse("aicore:help"))
+        self.assertEqual(r.status_code, 302)
+
+    def test_bundled_readme_in_sync_with_repo_root(self):
+        import pathlib
+
+        pkg_readme = pathlib.Path(__file__).with_name("README.md").read_text(encoding="utf-8")
+        root_readme = pathlib.Path(__file__).resolve().parent.parent.joinpath("README.md")
+        if root_readme.exists():
+            self.assertEqual(pkg_readme, root_readme.read_text(encoding="utf-8"),
+                             "django_aicore/README.md рассинхронизирован с корневым README.md — "
+                             "правь корень и копируй: cp README.md django_aicore/README.md")

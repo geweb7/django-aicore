@@ -5,6 +5,7 @@ from . import views
 app_name = "aicore"
 
 urlpatterns = [
+    path("help/", views.help, name="help"),
     path("task-poll/<str:task_id>/", views.task_poll, name="task_poll"),
     path("ai-models/", views.ai_models, name="ai_models"),
     path("ai-models/refresh-pricing/", views.ai_models_refresh_pricing, name="ai_models_refresh_pricing"),

@@ -118,6 +118,27 @@ def run_async(task_func, poll_url_name="aicore:task_poll", dedup_key=None):
 
 
 @login_required
+def help(request):
+    """Контракт потребителя из ТОЙ ЖЕ установки: django_aicore/README.md в wheel.
+
+    Потребитель сверяется с этой страницей, а не с GitHub: код и внешний текст
+    расходятся между релизами, а здесь версия в шапке всегда совпадает с кодом.
+    Без markdown-зависимостей — сырой текст в <pre>, иначе ради справки тащить
+    в зависимости лишний пакет.
+    """
+    from django_aicore import __version__, get_contract_text
+
+    try:
+        contract = get_contract_text()
+    except LookupError as e:
+        contract = f"Контракт не найден в установке: {e}"
+    return render(request, "aicore/help.html", {
+        "contract": contract,
+        "aicore_version": __version__,
+    })
+
+
+@login_required
 def task_poll(request, task_id):
     """Generic poll для любого фонового run_async задания."""
     task = read_task(task_id)

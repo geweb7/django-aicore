@@ -1,0 +1,13 @@
+{% extends "aicore/base.html" %}
+
+{% block title %}AI — помощь (контракт){% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-1">Контракт django-aicore</h1>
+<p class="text-muted">
+  Версия установленной поставки: <code>{{ aicore_version }}</code>.
+  Текст ниже — <code>django_aicore/README.md</code> из ТОЙ ЖЕ установки
+  (URL-имя страницы — <code>aicore:help</code>). Сверяйтесь с ним, а не с GitHub.
+</p>
+<pre class="bg-white border rounded p-3" style="white-space: pre-wrap;">{{ contract }}</pre>
+{% endblock %}
