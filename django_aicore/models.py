@@ -56,6 +56,11 @@ class Provider(models.Model):
     # провайдера (разные id моделей у одного и того же сервиса) не могут отвечать на
     # разные адреса — раньше это поле дублировалось на AIModel и могло разойтись.
     base_url = models.URLField(verbose_name="API endpoint")
+    # Идти ли к этому провайдеру через общий пул ProxySettings. Решение живёт здесь,
+    # а не выводится из hostname, модели, роли или base_url: иначе смена адреса молча
+    # меняла бы маршрут, а два провайдера на похожих URL нельзя было бы развести.
+    # True по умолчанию — текущее поведение всех уже заведённых провайдеров.
+    use_proxy = models.BooleanField(default=True, verbose_name="Использовать прокси")
 
     class Meta:
         ordering = ["name"]

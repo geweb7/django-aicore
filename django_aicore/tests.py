@@ -22,7 +22,9 @@ def make_ai_model(**kwargs):
     dialect = kwargs.pop("dialect", Provider.DIALECT_OPENAI)
     key_value = kwargs.pop("api_key", "k")
     base_url = kwargs.pop("base_url", "https://example.com/v1/chat/completions")
-    provider = Provider.objects.create(name=dialect, dialect=dialect, base_url=base_url)
+    use_proxy = kwargs.pop("use_proxy", True)
+    provider = Provider.objects.create(
+        name=dialect, dialect=dialect, base_url=base_url, use_proxy=use_proxy)
     api_key = AIApiKey.objects.create(key=key_value, provider=provider)
     defaults = dict(api_key=api_key, model="m",
                     role=AIModel.ROLE_SMART, is_active=True,
@@ -206,6 +208,109 @@ class CallsViewTests(TestCase):
         r = self.client.get(self.url(**{"from": "позавчера"}))
         self.assertEqual(r.context["totals"]["calls"], 3)
         self.assertTrue([m for m in r.context["messages"] if "не дата" in str(m)])
+
+
+class ProviderUseProxyTests(TestCase):
+    """Маршрут прокси берётся с Provider, а не с URL/роли/модели."""
+
+    def _ok_session(self, body=None):
+        body = body if body is not None else {"ok": True}
+        resp = mock.Mock()
+        resp.status_code = 200
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = body
+        resp.text = ""
+        resp.headers = {}
+        session = mock.Mock()
+        session.request.return_value = resp
+        return session
+
+    def test_new_provider_defaults_to_using_proxy(self):
+        provider = Provider.objects.create(
+            name="x", dialect=Provider.DIALECT_OPENAI,
+            base_url="https://example.com/v1/chat/completions")
+        self.assertTrue(provider.use_proxy)
+
+    def test_direct_does_not_pick_proxy_or_retry(self):
+        session = mock.Mock()
+        session.request.side_effect = core.requests.exceptions.ConnectionError("boom")
+        with mock.patch.object(core.requests, "Session", return_value=session):
+            with mock.patch.object(core.ProxySettings, "pick") as pick:
+                with self.assertRaises(AIUnavailableError):
+                    core.post_json("https://example.com/x", {}, {}, 5,
+                                   kind="t", where="w", use_proxy=False)
+        pick.assert_not_called()
+        self.assertEqual(session.request.call_count, 1)
+        self.assertIsNone(session.request.call_args.kwargs.get("proxies"))
+
+    def test_proxy_true_picks_from_pool(self):
+        session = self._ok_session()
+        proxy = mock.Mock()
+        proxy.pk = 1
+        proxy.requests_proxies.return_value = {"http": "http://proxy.example:1",
+                                               "https": "http://proxy.example:1"}
+        with mock.patch.object(core.requests, "Session", return_value=session):
+            with mock.patch.object(core.ProxySettings, "pick", return_value=proxy) as pick:
+                core.post_json("https://example.com/x", {}, {}, 5,
+                               kind="t", where="w", use_proxy=True)
+        pick.assert_called()
+        self.assertEqual(session.request.call_args.kwargs["proxies"],
+                         proxy.requests_proxies.return_value)
+        proxy.register_ok.assert_called()
+
+    def test_chat_reads_flag_from_provider_not_url(self):
+        ai = make_ai_model(
+            dialect=Provider.DIALECT_OPENAI,
+            base_url="https://openrouter.ai/api/v1/chat/completions",
+            use_proxy=False)
+        payload = {"choices": [{"message": {"content": "ok"}}], "usage": {}}
+        with mock.patch.object(core, "post_json", return_value=payload) as pj:
+            run_as_app("myapp", core.call, ai, [{"role": "user", "content": "q"}])
+        self.assertFalse(pj.call_args.kwargs["use_proxy"])
+
+        ai_on = make_ai_model(use_proxy=True, base_url="https://example.com/v1/chat/completions")
+        with mock.patch.object(core, "post_json", return_value=payload) as pj:
+            run_as_app("myapp", core.call, ai_on, [{"role": "user", "content": "q"}])
+        self.assertTrue(pj.call_args.kwargs["use_proxy"])
+
+    def test_vision_and_embeddings_use_the_same_provider_flag(self):
+        vision = make_ai_model(role=AIModel.ROLE_VISION, use_proxy=False)
+        payload = {"choices": [{"message": {"content": "ok"}}], "usage": {}}
+        with mock.patch.object(core, "post_json", return_value=payload) as pj:
+            run_as_app("myapp", core.call, vision, [{"role": "user", "content": "q"}])
+        self.assertFalse(pj.call_args.kwargs["use_proxy"])
+
+        make_ai_model(role=AIModel.ROLE_EMBED, use_proxy=False)
+        with mock.patch.object(core, "post_json", return_value={"data": [{"embedding": [0.1]}]}) as pj:
+            run_as_app("myapp", core.get_embeddings_batch, ["текст"])
+        self.assertFalse(pj.call_args.kwargs["use_proxy"])
+
+    def test_form_shows_checkbox_and_can_turn_proxy_off(self):
+        user = get_user_model().objects.create_user("admin", password="x")
+        self.client.force_login(user)
+        page = self.client.get(reverse("aicore:providers"))
+        self.assertContains(page, "Использовать прокси")
+        self.assertContains(page, 'name="use_proxy"')
+
+        provider = Provider.objects.create(
+            name="p", dialect=Provider.DIALECT_OPENAI,
+            base_url="https://example.com/v1/chat/completions")
+        self.assertTrue(provider.use_proxy)
+        self.client.post(reverse("aicore:provider_save", args=[provider.pk]), {
+            "name": "p",
+            "dialect": Provider.DIALECT_OPENAI,
+            "base_url": "https://example.com/v1/chat/completions",
+        })
+        provider.refresh_from_db()
+        self.assertFalse(provider.use_proxy)
+        self.client.post(reverse("aicore:provider_save", args=[provider.pk]), {
+            "name": "p",
+            "dialect": Provider.DIALECT_OPENAI,
+            "base_url": "https://example.com/v1/chat/completions",
+            "use_proxy": "on",
+        })
+        provider.refresh_from_db()
+        self.assertTrue(provider.use_proxy)
 
 
 class HelpContractTests(TestCase):

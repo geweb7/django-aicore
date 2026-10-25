@@ -328,14 +328,26 @@ def _retry_error(failures):
     )
 
 
-def post_json(url, headers, payload, timeout, *, kind, where, meta=None, method="POST"):
+def provider_uses_proxy(ai_model):
+    """Идти ли к этой модели через пул прокси — только флаг выбранного Provider.
+
+    Hostname, имя модели, роль и base_url тут ни при чём: иначе смена адреса молча
+    меняла бы маршрут, а двух провайдеров на похожих URL нельзя было бы развести.
+    """
+    return bool(ai_model.api_key.provider.use_proxy)
+
+
+def post_json(url, headers, payload, timeout, *, kind, where, meta=None, method="POST",
+              use_proxy=True):
     """Единый HTTP-тракт для ВСЕХ запросов к AI-провайдерам (chat, embeddings, справки).
 
-    Всегда через прокси. Ретрай — только когда запрос не дошёл по вине тракта, до
+    Прокси — по флагу выбранного Provider (`use_proxy`), а не по URL. True: пул
+    ProxySettings, ротация, ретрай только когда запрос не дошёл по вине тракта, до
     PROXY_RETRIES дополнительных попыток и каждая через ДРУГОЙ прокси (упавший исключается
-    из выбора). Всё остальное — fail fast: ошибка сразу бросает AIUnavailableError с полным
-    контекстом. Ротация по счётчикам остаётся выбором прокси для СЛЕДУЮЩЕГО запроса; здесь
-    же — вторая попытка для этого.
+    из выбора). False: напрямую, без pick() и без прокси-ретраев. Всё остальное —
+    fail fast: ошибка сразу бросает AIUnavailableError с полным контекстом. Ротация по
+    счётчикам остаётся выбором прокси для СЛЕДУЮЩЕГО запроса; здесь же — вторая попытка
+    для этого.
     `kind` — тип запроса для сообщений («AI API» / «embedding API»),
     `where` — описание источника (модель, роль, url).
     `meta` — необязательный dict, куда складываются факты транспорта для журнала
@@ -350,8 +362,12 @@ def post_json(url, headers, payload, timeout, *, kind, where, meta=None, method=
     tried = []
     failures = []
     while True:
-        active_proxy = ProxySettings.pick(exclude=tried)
-        proxies = active_proxy.requests_proxies() if active_proxy else None
+        if use_proxy:
+            active_proxy = ProxySettings.pick(exclude=tried)
+            proxies = active_proxy.requests_proxies() if active_proxy else None
+        else:
+            active_proxy = None
+            proxies = None
         meta["proxy"] = active_proxy
         # Фаза прошлой попытки не должна пережить удачную: иначе успешный после ретрая
         # вызов лёг бы в журнал с чужим error_kind.
@@ -514,6 +530,7 @@ def fetch_generation_cost(ai_model, gen_id, timeout=30):
     data = post_json(
         f"https://openrouter.ai/api/v1/generation?id={quote(gen_id)}", headers, None, timeout,
         kind="OpenRouter /generation", where=f"по id генерации «{gen_id}»", method="GET",
+        use_proxy=provider_uses_proxy(ai_model),
     )
     body = data.get("data") if isinstance(data, dict) else None
     if not isinstance(body, dict):
@@ -851,6 +868,7 @@ def _call_ai_model(ai_model, messages, max_tokens=16000, timeout=None, temperatu
         kind="AI API",
         where=f"от модели «{ai_model.model}» (роль «{ai_model.role}», {url})",
         meta=meta,
+        use_proxy=provider_uses_proxy(ai_model),
     )
     logger.debug("AI raw response: %s", data)
 
@@ -1153,6 +1171,7 @@ def get_embeddings_batch(texts, batch_size=100, caller=""):
             body = post_json(
                 url, headers, {"model": ai_model.model, "input": chunk}, 60,
                 kind="embedding API", where=where, meta=meta,
+                use_proxy=provider_uses_proxy(ai_model),
             )
         except AIUnavailableError as e:
             try:

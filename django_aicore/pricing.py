@@ -32,7 +32,9 @@ def fetch_openrouter_catalog():
     entry — {"prompt": float, "completion": float, "intelligence": float|None, "name": str}
     Intelligence — Artificial Analysis index из benchmarks.artificial_analysis
     (160 из 420 моделей имеют балл, остальные — None, это не мусор а «нет оценки»).
-    Идёт через общий транспорт post_json — с прокси и ретраем.
+    Идёт через общий транспорт post_json. Это не вызов через выбранный Provider,
+    поэтому флаг прокси не выводится из имени/диалекта/URL — дефолт тракта
+    (как у Provider.use_proxy: True).
     """
     data = post_json(
         OPENROUTER_MODELS_URL,

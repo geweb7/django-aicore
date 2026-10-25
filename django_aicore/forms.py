@@ -7,12 +7,13 @@ from .models import AIApiKey, AIModel, AIModelTag, Provider, api_url_is_root
 class ProviderForm(forms.ModelForm):
     class Meta:
         model = Provider
-        fields = ["name", "dialect", "base_url"]
+        fields = ["name", "dialect", "base_url", "use_proxy"]
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control form-control-sm", "placeholder": "OpenRouter"}),
             "dialect": forms.Select(attrs={"class": "form-select form-select-sm"}),
             "base_url": forms.URLInput(attrs={"class": "form-control form-control-sm",
                                               "placeholder": "https://api.anthropic.com/v1/messages"}),
+            "use_proxy": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
 
     def clean(self):
