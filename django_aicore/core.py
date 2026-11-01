@@ -39,6 +39,12 @@ PROXY_FAIL_KINDS = {"proxy", "connect_timeout", "connection"}
 # оплачивал бы те же токены второй раз.
 PROXY_RETRIES = 1
 
+# Сколько моделей перебирать на ОДИН вызов, когда выбранная молчит (read_timeout):
+# основная + резервные той же категории. Смена модели оправдана только молчанием —
+# любой провайдер может лечь, резервы для того и настроены. Остальные фазы (тракт,
+# HTTP-ответ) сменой модели не лечатся.
+MODEL_FALLBACK_LIMIT = 3
+
 
 # Корневые пакеты, которые не могут быть приложением-инициатором AI-вызова: сам слой,
 # проект и рантайм. Кадры из них при поиске приложения проходятся насквозь.
@@ -679,6 +685,21 @@ def call(ai_model, messages, max_tokens=16000, timeout=None, temperature=None, e
                      temperature=temperature, extra_payload=extra_payload, caller=caller, task=None)
 
 
+def _fallback_candidates(task, ai_model):
+    """Резервные модели той же категории, кроме текущей: тег задачи → иначе роль.
+
+    Тот же выбор, что в resolve_task, но «кто ещё той же категории», а не «кто
+    первый». Приоритет — порядок выбора: следующая по priority. Пустой список —
+    переключаться не на что.
+    """
+    qs = AIModel.objects.filter(is_active=True).exclude(pk=ai_model.pk)
+    if task and task.tag:
+        qs = qs.filter(tags__name=task.tag)
+    else:
+        qs = qs.filter(role=ai_model.role)
+    return list(qs.order_by("priority", "id"))
+
+
 def _run_chat(ai_model, messages, max_tokens, timeout, temperature, extra_payload, caller, task):
     """Общий ствол обеих точек входа: вызов, журнал на успехе и на ошибке, факты в usage.
 
@@ -686,45 +707,66 @@ def _run_chat(ai_model, messages, max_tokens, timeout, temperature, extra_payloa
     temperature/upstream). После переезда на реестр модель и температуру выбирает
     слой — значит только слой и может сказать, что фактически сработало. И на успехе,
     и в usage упавшего исключения: при ошибке эти факты нужнее всего.
+
+    Резервные модели: если выбранная молчит (read_timeout), пробуем следующую активную
+    модель той же категории (тег задачи / роль) в порядке приоритета. Любой провайдер
+    может лечь — резервы для того и настроены. Прочие фазы отказа (тракт, HTTP-ответ,
+    пустое тело) сменой модели не лечатся и поднимаются сразу.
     """
-    meta = {}
     sent = render_messages(messages)
-    facts = {
-        "sent": sent,
-        "model": ai_model.model,
-        "role": ai_model.role,
-        # Чем сделан выбор: тег задачи или роль. Догадка кода тут не годится — реестр
-        # меняется в рантайме.
-        "tag": task.tag if task else "",
-        "temperature": temperature if temperature is not None else ai_model.temperature,
-    }
     # Приложение-инициатор уходит в X-Title, чтобы OpenRouter в Activity разбивал траты по
     # приложениям на общем ключе. Тем же значением пишется поле app в журнале (resolve_app).
     app = resolve_app(task)
-    try:
-        content, usage = _call_ai_model(ai_model, messages, max_tokens=max_tokens, timeout=timeout,
-                                        temperature=temperature, extra_payload=extra_payload,
-                                        meta=meta, app=app)
-    except AIUnavailableError as e:
-        e.usage.update(facts, upstream=meta.get("upstream", ""), retries=meta.get("retries", 0))
-        # Сбой журнала виден пользователю, но не стирает ошибку AI: наружу уходят обе.
+    candidates = [ai_model] + _fallback_candidates(task, ai_model)
+    failures = []
+    for model in candidates[:MODEL_FALLBACK_LIMIT]:
+        meta = {}
+        facts = {
+            "sent": sent,
+            "model": model.model,
+            "role": model.role,
+            # Чем сделан выбор: тег задачи или роль. Догадка кода тут не годится — реестр
+            # меняется в рантайме.
+            "tag": task.tag if task else "",
+            "temperature": temperature if temperature is not None else model.temperature,
+        }
         try:
-            row = _log_call("chat", ai_model, caller, meta, e.usage, error=e, task=task)
-            e.usage["call_log_id"] = row.pk
-        except Exception as log_err:
-            raise AIUnavailableError(
-                f"{e}\n\nКроме того, не удалось записать журнал вызовов (AICallLog): {log_err}"
-            ) from e
-        raise
-    # retries — сколько прокси пришлось перебрать, чтобы запрос дошёл. В usage, а не только
-    # в лог: удавшийся со второго прокси вызов иначе неотличим от прошедшего с первого, и
-    # ретрай тихо съедал бы симптом вместо того, чтобы его показать.
-    usage.update(facts, upstream=meta.get("upstream", ""), retries=meta.get("retries", 0))
-    # call_log_id — ключ к строке журнала этого круга. Без него приложение не может собрать
-    # свой ход (несколько вызовов подряд) из журнала: по caller туда попадают все ходы всех
-    # сценариев сразу, а разделить их постфактум нечем.
-    usage["call_log_id"] = _log_call("chat", ai_model, caller, meta, usage, task=task).pk
-    return content, usage
+            content, usage = _call_ai_model(model, messages, max_tokens=max_tokens, timeout=timeout,
+                                            temperature=temperature, extra_payload=extra_payload,
+                                            meta=meta, app=app)
+        except AIUnavailableError as e:
+            e.usage.update(facts, upstream=meta.get("upstream", ""), retries=meta.get("retries", 0))
+            # Сбой журнала виден пользователю, но не стирает ошибку AI: наружу уходят обе.
+            try:
+                row = _log_call("chat", model, caller, meta, e.usage, error=e, task=task)
+                e.usage["call_log_id"] = row.pk
+            except Exception as log_err:
+                raise AIUnavailableError(
+                    f"{e}\n\nКроме того, не удалось записать журнал вызовов (AICallLog): {log_err}"
+                ) from e
+            failures.append((model, meta.get("error_kind", ""), e))
+            # Смену модели оправдывает только молчание модели: остальные фазы — тракт/ответ,
+            # и повтор через другой провайдер их не вылечит.
+            if meta.get("error_kind") != "read_timeout":
+                break
+            continue
+        # retries — сколько прокси пришлось перебрать, чтобы запрос дошёл. В usage, а не только
+        # в лог: удавшийся со второго прокси вызов иначе неотличим от прошедшего с первого, и
+        # ретрай тихо съедал бы симптом вместо того, чтобы его показать.
+        usage.update(facts, upstream=meta.get("upstream", ""), retries=meta.get("retries", 0))
+        # call_log_id — ключ к строке журнала этого круга. Без него приложение не может собрать
+        # свой ход (несколько вызовов подряд) из журнала: по caller туда попадают все ходы всех
+        # сценариев сразу, а разделить их постфактум нечем.
+        usage["call_log_id"] = _log_call("chat", model, caller, meta, usage, task=task).pk
+        return content, usage
+    if len(failures) == 1:
+        raise failures[0][2]
+    lines = [f"Попытка {i} на модели «{m.model}» (роль «{m.role}») — фаза «{phase}»:\n{err}"
+             for i, (m, phase, err) in enumerate(failures, 1)]
+    raise AIUnavailableError(
+        f"Все модели ({len(failures)}) не ответили.\n\n" + "\n\n".join(lines),
+        usage=failures[-1][2].usage,
+    )
 
 
 def _gemini_tool_calls(parts):

@@ -313,6 +313,70 @@ class ProviderUseProxyTests(TestCase):
         self.assertTrue(provider.use_proxy)
 
 
+class ModelFallbackTests(TestCase):
+    """Резервные модели: read_timeout на выбранной → следующая активная той же роли."""
+
+    def _two_cheap(self):
+        first = make_ai_model(role=AIModel.ROLE_CHEAP, model="first", priority=100)
+        second = make_ai_model(role=AIModel.ROLE_CHEAP, model="second", priority=200)
+        return first, second
+
+    def test_read_timeout_falls_back_to_next_active_model(self):
+        first, second = self._two_cheap()
+
+        def fake_call(ai_model, messages, **kw):
+            if ai_model.pk == first.pk:
+                kw["meta"]["error_kind"] = "read_timeout"
+                raise AIUnavailableError("модель молчит", usage={})
+            return "ok", {"prompt_tokens": 1}
+
+        with mock.patch.object(core, "_call_ai_model", side_effect=fake_call):
+            content, usage = run_as_app("myapp", core.call_task, "myapp.chat",
+                                        [{"role": "user", "content": "q"}], role="cheap")
+        self.assertEqual(content, "ok")
+        # В журнале две строки: первая — ошибка на первой модели, вторая — успех на резерве.
+        rows = list(AICallLog.objects.order_by("pk"))
+        self.assertEqual(len(rows), 2)
+        self.assertFalse(rows[0].ok)
+        self.assertEqual(rows[0].error_kind, "read_timeout")
+        self.assertEqual(rows[0].ai_model.pk, first.pk)
+        self.assertTrue(rows[1].ok)
+        self.assertEqual(rows[1].ai_model.pk, second.pk)
+
+    def test_all_models_silent_raises_aggregated(self):
+        first, second = self._two_cheap()
+
+        def fake_call(ai_model, messages, **kw):
+            kw["meta"]["error_kind"] = "read_timeout"
+            raise AIUnavailableError(f"молчит {ai_model.model}", usage={})
+
+        with mock.patch.object(core, "_call_ai_model", side_effect=fake_call):
+            with self.assertRaises(AIUnavailableError) as ctx:
+                run_as_app("myapp", core.call_task, "myapp.chat",
+                           [{"role": "user", "content": "q"}], role="cheap")
+        self.assertIn("Все модели (2) не ответили", str(ctx.exception))
+        rows = list(AICallLog.objects.order_by("pk"))
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(not r.ok for r in rows))
+
+    def test_non_timeout_error_does_not_fallback(self):
+        first, second = self._two_cheap()
+
+        def fake_call(ai_model, messages, **kw):
+            kw["meta"]["error_kind"] = "http"
+            raise AIUnavailableError("ошибка http", usage={})
+
+        with mock.patch.object(core, "_call_ai_model", side_effect=fake_call):
+            with self.assertRaises(AIUnavailableError) as ctx:
+                run_as_app("myapp", core.call_task, "myapp.chat",
+                           [{"role": "user", "content": "q"}], role="cheap")
+        self.assertIn("ошибка http", str(ctx.exception))
+        # Фолбэка нет: одна строка ошибки.
+        rows = list(AICallLog.objects.all())
+        self.assertEqual(len(rows), 1)
+        self.assertFalse(rows[0].ok)
+
+
 class HelpContractTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user("helper", password="x")
