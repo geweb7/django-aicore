@@ -249,30 +249,34 @@ def ai_models(request):
 
     catalog = get_openrouter_catalog()
     pricing_error = None
-    if not catalog:
-        # fail fast: каталог пустой — это ошибка транспорта, а не «пока пусто»
-        raise RuntimeError(
-            "Каталог OpenRouter пуст — GET openrouter.ai/api/v1/models не вернул данных "
-            "(прокси/сеть). Кнопка «Обновить каталог» форсит рефетч, лог — pricing.py."
-        )
     from .pricing import _resolve_entry
 
-    for m in items:
-        if m.api_key.provider.dialect == Provider.DIALECT_OPENROUTER:
-            raw = _resolve_entry(m.model, catalog)
-            if raw:
-                m.or_price = format_price(raw["prompt"])
-                m.or_price_out = format_price(raw["completion"])
-                m.or_price_raw = raw
-                m.or_intelligence = raw.get("intelligence")
-                # класс — окно ±5 вокруг интеллекта, а не бакет 10
-                m.or_tier_label = f"{m.or_intelligence-5:.1f}–{m.or_intelligence+5:.1f}" if m.or_intelligence is not None else None
-                m.or_candidates = candidates_in_tier(m.model, catalog) if m.or_intelligence is not None else []
-                m.or_cheaper = [c for c in m.or_candidates if c["saving"] < 0]
-                m.or_resolved_id = next((mid for mid, e in catalog.items() if e is raw), m.model)
-                m.or_not_found = False
+    if catalog:
+        for m in items:
+            if m.api_key.provider.dialect == Provider.DIALECT_OPENROUTER:
+                raw = _resolve_entry(m.model, catalog)
+                if raw:
+                    m.or_price = format_price(raw["prompt"])
+                    m.or_price_out = format_price(raw["completion"])
+                    m.or_price_raw = raw
+                    m.or_intelligence = raw.get("intelligence")
+                    # класс — окно ±5 вокруг интеллекта, а не бакет 10
+                    m.or_tier_label = f"{m.or_intelligence-5:.1f}–{m.or_intelligence+5:.1f}" if m.or_intelligence is not None else None
+                    m.or_candidates = candidates_in_tier(m.model, catalog) if m.or_intelligence is not None else []
+                    m.or_cheaper = [c for c in m.or_candidates if c["saving"] < 0]
+                    m.or_resolved_id = next((mid for mid, e in catalog.items() if e is raw), m.model)
+                    m.or_not_found = False
+                else:
+                    m.or_price = None
+                    m.or_price_out = None
+                    m.or_price_raw = None
+                    m.or_intelligence = None
+                    m.or_tier = None
+                    m.or_tier_label = None
+                    m.or_cheaper = []
+                    m.or_not_found = True
+                    m.or_resolved_id = None
             else:
-                # fail fast: модель не в каталоге — видно сразу, с подсказкой про формат id
                 m.or_price = None
                 m.or_price_out = None
                 m.or_price_raw = None
@@ -280,16 +284,14 @@ def ai_models(request):
                 m.or_tier = None
                 m.or_tier_label = None
                 m.or_cheaper = []
-                m.or_not_found = True
-                m.or_resolved_id = None
-        else:
-            m.or_price = None
-            m.or_price_out = None
-            m.or_price_raw = None
-            m.or_intelligence = None
-            m.or_tier = None
-            m.or_tier_label = None
-            m.or_cheaper = []
+    else:
+        # Каталог OpenRouter недоступен (ошибка транспорта, кэш пуст) — не роняем страницу
+        # (500), а показываем предупреждение; пусто уже закэшировано накоротко в
+        # pricing.get_openrouter_catalog, чтобы страница не дёргала внешний API на каждый рендер.
+        pricing_error = (
+            "Каталог OpenRouter недоступен — GET openrouter.ai/api/v1/models не вернул данных "
+            "(прокси/сеть). Цены скрыты. Когда сеть вернётся — нажми «Обновить каталог»."
+        )
 
     return render(request, "aicore/ai_models.html", {
         "ai_models": items,

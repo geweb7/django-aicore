@@ -10,6 +10,9 @@ OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 CACHE_KEY = "aicore:openrouter:pricing"
 CATALOG_KEY = "aicore:openrouter:catalog"
 CACHE_TTL = 6 * 3600
+# Короткий TTL для сбоя транспорта: кэшируем пустой каталог, чтобы страницы не дёргали
+# внешний API на каждый рендер, пока сеть/прокси лежат.
+FAIL_CACHE_TTL = 300
 
 
 def _parse_pricing(raw):
@@ -89,6 +92,10 @@ def get_openrouter_catalog(force_refresh=False):
         old = cache.get(CACHE_KEY)
         if old is not None:
             return old
+        # Сбой транспорта без валидного кэша: кладём пусто на короткое время, чтобы
+        # страницы не дёргали внешний API на каждый рендер, пока сеть/прокси лежат.
+        cache.set(CATALOG_KEY, {}, FAIL_CACHE_TTL)
+        cache.set(CACHE_KEY, {}, FAIL_CACHE_TTL)
         return {}
     cache.set(CATALOG_KEY, catalog, CACHE_TTL)
     cache.set(CACHE_KEY, catalog, CACHE_TTL)

@@ -31,6 +31,13 @@
     </div>
   </div>
 
+  {% if or_pricing_error %}
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+      {{ or_pricing_error }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endif %}
+
   {% if ai_models %}
     <div class="table-responsive bg-white border rounded">
       <table class="table table-sm table-hover align-middle mb-0 prov-table">
