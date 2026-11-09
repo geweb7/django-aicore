@@ -245,9 +245,9 @@ def ai_models(request):
     for m in items:
         m.default_roles = default_for.get(m.pk, [])
 
-    from .pricing import candidates_in_tier, format_price, get_openrouter_catalog, tier_label, tier_of
+    from .pricing import candidates_in_tier, format_price, get_openrouter_catalog_cached, tier_label, tier_of
 
-    catalog = get_openrouter_catalog()
+    catalog = get_openrouter_catalog_cached()
     pricing_error = None
     from .pricing import _resolve_entry
 
@@ -285,12 +285,12 @@ def ai_models(request):
                 m.or_tier_label = None
                 m.or_cheaper = []
     else:
-        # Каталог OpenRouter недоступен (ошибка транспорта, кэш пуст) — не роняем страницу
-        # (500), а показываем предупреждение; пусто уже закэшировано накоротко в
-        # pricing.get_openrouter_catalog, чтобы страница не дёргала внешний API на каждый рендер.
+        # Каталог OpenRouter не загружен (кэш пуст/протух) — не роняем страницу (500) и не
+        # дёргаем внешний API при рендере: показываем предупреждение, цены скрыты. Загрузка —
+        # только по кнопке «Обновить каталог».
         pricing_error = (
-            "Каталог OpenRouter недоступен — GET openrouter.ai/api/v1/models не вернул данных "
-            "(прокси/сеть). Цены скрыты. Когда сеть вернётся — нажми «Обновить каталог»."
+            "Каталог OpenRouter не загружен — кэш пуст (сеть/прокси не вернули данные). "
+            "Цены скрыты. Нажми «Обновить каталог», чтобы загрузить."
         )
 
     return render(request, "aicore/ai_models.html", {

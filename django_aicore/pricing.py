@@ -102,6 +102,22 @@ def get_openrouter_catalog(force_refresh=False):
     return catalog
 
 
+def get_openrouter_catalog_cached():
+    """Только из кэша, без сетевого запроса.
+
+    Для GET-вьюх: рендер страницы не должен молчаливо тянуть внешний API
+    (OpenRouter через прокси-пул). Сетевой фетч — только по явной кнопке
+    «Обновить каталог» (refresh-pricing).
+    """
+    cached = cache.get(CATALOG_KEY)
+    if cached is not None:
+        return cached
+    old = cache.get(CACHE_KEY)
+    if isinstance(old, dict) and old and isinstance(next(iter(old.values())), dict) and "intelligence" in next(iter(old.values())):
+        return old
+    return {}
+
+
 def get_openrouter_pricing(force_refresh=False):
     """Кэшированный доступ к ценам. TTL 6ч."""
     catalog = get_openrouter_catalog(force_refresh=force_refresh)
