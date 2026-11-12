@@ -343,6 +343,28 @@ class ModelFallbackTests(TestCase):
         self.assertTrue(rows[1].ok)
         self.assertEqual(rows[1].ai_model.pk, second.pk)
 
+    def test_http_402_falls_back_to_next_active_model(self):
+        first, second = self._two_cheap()
+
+        def fake_call(ai_model, messages, **kw):
+            if ai_model.pk == first.pk:
+                kw["meta"]["error_kind"] = "http"
+                kw["meta"]["http_status"] = 402
+                raise AIUnavailableError("Недостаточно средств", usage={})
+            return "ok", {"prompt_tokens": 1}
+
+        with mock.patch.object(core, "_call_ai_model", side_effect=fake_call):
+            content, usage = run_as_app("myapp", core.call_task, "myapp.chat",
+                                        [{"role": "user", "content": "q"}], role="cheap")
+        self.assertEqual(content, "ok")
+        rows = list(AICallLog.objects.order_by("pk"))
+        self.assertEqual(len(rows), 2)
+        self.assertFalse(rows[0].ok)
+        self.assertEqual(rows[0].http_status, 402)
+        self.assertEqual(rows[0].ai_model.pk, first.pk)
+        self.assertTrue(rows[1].ok)
+        self.assertEqual(rows[1].ai_model.pk, second.pk)
+
     def test_all_models_silent_raises_aggregated(self):
         first, second = self._two_cheap()
 
@@ -364,6 +386,7 @@ class ModelFallbackTests(TestCase):
 
         def fake_call(ai_model, messages, **kw):
             kw["meta"]["error_kind"] = "http"
+            kw["meta"]["http_status"] = 500
             raise AIUnavailableError("ошибка http", usage={})
 
         with mock.patch.object(core, "_call_ai_model", side_effect=fake_call):
